@@ -416,8 +416,8 @@ class SvaraScribe {
         const sortedPitches = [...this.recentPitches].sort((a, b) => a - b);
         const medianPitch = sortedPitches[Math.floor(sortedPitches.length / 2)];
         
-        // Check if pitches are reasonably stable (within 5% variance)
-        const maxVariance = medianPitch * 0.05; // 5% tolerance
+        // Check if pitches are reasonably stable (within 20% variance)
+        const maxVariance = medianPitch * 0.20; // 20% tolerance
         const isStable = this.recentPitches.every(p => Math.abs(p - medianPitch) <= maxVariance);
         
         if (isStable) {
