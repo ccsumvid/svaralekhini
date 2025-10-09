@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Svara Lekhini - Carnatic Music Analyzer</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='%23667eea'/><text x='50' y='60' text-anchor='middle' fill='white' font-size='30' font-family='Arial'>Sa</text></svg>">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --border-radius: 20px;
+            --border-radius-sm: 12px;
+            --shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        }
+
+        /* Light Theme */
+        [data-theme="light"] {
+            --bg-primary: linear-gradient(135deg, #f5f5f7 0%, #ffffff 100%);
+            --bg-secondary: rgba(255, 255, 255, 0.8);
+            --bg-card: rgba(255, 255, 255, 0.9);
+            --bg-input: rgba(248, 248, 248, 0.95);
+            --text-primary: #1d1d1f;
+            --text-secondary: #424245;
+            --text-muted: #6e6e73;
+            --border-color: rgba(0, 0, 0, 0.1);
+            --success: linear-gradient(135deg, #34c759 0%, #30d158 100%);
+            --danger: linear-gradient(135deg, #ff3b30 0%, #ff453a 100%);
+            --theme-icon: "🌙";
+        }
+
+        /* Dark Theme */
+        [data-theme="dark"] {
+            --bg-primary: #0f0f0f;
+            --bg-secondary: #1a1a1a;
+            --bg-card: #1e1e1e;
+            --bg-input: #1a1a1a;
+            --text-primary: #ffffff;
+            --text-secondary: #b0b0b0;
+            --text-muted: #808080;
+            --border-color: rgba(255, 255, 255, 0.1);
+            --success: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --danger: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            --theme-icon: "☀️";
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; 
+            background: var(--bg-primary);
+            min-height: 100vh;
+            color: var(--text-primary);
+            line-height: 1.6;
+            transition: all 0.3s ease;
+        }
+
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+            padding: 1.5rem;
+        }
+
+        .header { 
+            text-align: center; 
+            margin-bottom: 2rem;
+            position: relative;
+        }
+
+        .header h1 {
+            font-size: clamp(2rem, 4vw, 3rem);
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            font-size: 1rem;
+            color: var(--text-secondary);
+        }
+
+        .theme-controls {
+            position: absolute;
+            top: 0;
+            right: 0;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .theme-toggle, .help-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: var(--text-primary);
+            font-weight: 600;
+            transition: all 0.3s ease;
+            font-size: 1.2rem;
+        }
+
+        .theme-toggle:hover, .help-btn:hover {
+            background: var(--bg-secondary);
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .theme-toggle::after {
+            content: var(--theme-icon);
+        }
+
+        .workflow-container {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .step-header {
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .step-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            background: var(--success);
+            color: white;
+            border-radius: 50%;
+            font-weight: 700;
+            font-size: 1rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .step-header h2 {
+            color: var(--text-primary);
+            font-size: 1.4rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .step-header p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .setup-grid {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .control-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            box-shadow: var(--shadow);
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .control-card:hover {
+            background: var(--bg-secondary);
+            border-color: rgba(255, 255, 255, 0.15);
+            transform: translateY(-2px);
+        }
+
+        .control-card h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            color: var(--text-primary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .control-group label {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        select, input, .lyrics-input {
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-sm);
+            font-size: 1rem;
+            background: var(--bg-input);
+            color: var(--text-primary);
+            transition: all 0.3s ease;
+        }
+
+        select:focus, input:focus, .lyrics-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+        }
+
+        select option {
+            background: var(--bg-card);
+            color: var(--text-primary);
+        }
+
+        .lyrics-input {
+            width: 100%;
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .lyrics-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .drone-section {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            padding: 1.25rem;
+            margin-top: 1rem;
+        }
+
+        .drone-info h4 {
+            color: var(--text-primary);
+            margin-bottom: 0.25rem;
+            font-size: 1rem;
+        }
+
+        .drone-info p {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .lyrics-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(10px);
+        }
+
+        .lyrics-header h3 {
+            color: var(--text-primary);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: var(--border-radius-sm);
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-active {
+            background: var(--danger) !important;
+            border-color: rgba(255, 255, 255, 0.3) !important;
+            animation: pulse-active 2s infinite;
+        }
+
+        @keyframes pulse-active {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-large {
+            padding: 1rem 2rem;
+            font-size: 1rem;
+            min-width: 180px;
+        }
+
+        .btn-icon {
+            font-size: 1.2rem;
+            margin-right: 0.5rem;
+        }
+
+        .primary-actions {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .secondary-actions {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .visualization {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            margin: 1.5rem auto;
+            box-shadow: var(--shadow);
+            max-width: 450px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
+
+        .visualization h3 {
+            color: var(--text-primary);
+            margin-bottom: 1rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .pitch-display {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 0.75rem 0;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .pitch-deviation {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            margin: 0.5rem 0;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        #canvas {
+            width: 100%;
+            height: 80px;
+            border-radius: var(--border-radius-sm);
+            background: var(--bg-input);
+        }
+
+        .notation-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(10px);
+        }
+
+        .notation-section h3 {
+            color: var(--text-primary);
+            margin-bottom: 1rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .notation-actions {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .clear-btn, .btn-small {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 0.5rem 1rem;
+            border-radius: var(--border-radius-sm);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .clear-btn:hover, .btn-small:hover {
+            background: var(--bg-input);
+        }
+
+        #liveNotation {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.1rem;
+            line-height: 1.8;
+            min-height: 80px;
+            padding: 1.25rem;
+            background: var(--bg-input);
+            border-radius: var(--border-radius-sm);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .live-note {
+            display: inline-block;
+            margin: 0.25rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-sm);
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            transition: all 0.3s ease;
+        }
+
+        .live-note.current {
+            background: var(--success);
+            color: white;
+            border-color: transparent;
+            transform: scale(1.1);
+            animation: pulse-note 1s infinite;
+        }
+
+        @keyframes pulse-note {
+            0%, 100% { transform: scale(1.1); }
+            50% { transform: scale(1.15); }
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+        }
+
+        .modal-content {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            margin: 5% auto;
+            padding: 2rem;
+            border-radius: var(--border-radius);
+            width: 90%;
+            max-width: 700px;
+            max-height: 80vh;
+            overflow-y: auto;
+            color: var(--text-primary);
+            backdrop-filter: blur(20px);
+        }
+
+        .close {
+            color: var(--text-secondary);
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close:hover {
+            color: var(--text-primary);
+        }
+
+        .help-section h3 {
+            color: #4facfe;
+            margin-bottom: 0.8rem;
+            font-size: 1.2rem;
+        }
+
+        .help-section p, .help-section li {
+            color: var(--text-secondary);
+            margin: 0.5rem 0;
+            line-height: 1.6;
+        }
+
+        @media (max-width: 768px) {
+            .setup-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .primary-actions {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .btn-large {
+                width: 100%;
+                max-width: 300px;
+            }
+            
+            .theme-controls {
+                position: relative;
+                justify-content: center;
+                margin-top: 1rem;
+            }
+        }
+    </style>
+</head>
+<body data-theme="dark">
+    <div class="container">
+        <div class="header">
+            <h1>Svara Lekhini</h1>
+            <p>Carnatic Music Analysis & Notation</p>
+            <div class="theme-controls">
+                <button id="themeToggle" class="theme-toggle" title="Toggle theme"></button>
+                <button id="helpBtn" class="help-btn">?</button>
+            </div>
+        </div>
+
+        <div class="workflow-container">
+            <!-- Step 1: Setup -->
+            <div class="workflow-step">
+                <div class="step-header">
+                    <span class="step-number">1</span>
+                    <h2>Setup Your Session</h2>
+                    <p>Configure your recording preferences</p>
+                </div>
+                
+                <div class="setup-grid">
+                    <div class="control-card primary-control">
+                        <h3>🎼 Notation Style</h3>
+                        <div class="control-group">
+                            <label>Choose your preferred format</label>
+                            <select id="notationStyle">
+                                <option value="carnatic">Carnatic (Sa Ri Ga Ma Pa Dha Ni)</option>
+                                <option value="western">Western (C D E F G A B)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="control-card secondary-control" id="basePitchCard">
+                        <h3>🎵 Shruti</h3>
+                        <div class="control-group">
+                            <label>Select shruti</label>
+                            <select id="basePitch">
+                                <option value="130.81">C3 (130.81 Hz) - Male Low</option>
+                                <option value="138.59">C#3 (138.59 Hz) - Male Low</option>
+                                <option value="146.83">D3 (146.83 Hz) - Male</option>
+                                <option value="155.56">D#3 (155.56 Hz) - Male</option>
+                                <option value="164.81">E3 (164.81 Hz) - Male</option>
+                                <option value="174.61">F3 (174.61 Hz) - Male</option>
+                                <option value="185.00">F#3 (185.00 Hz) - Male</option>
+                                <option value="196.00">G3 (196.00 Hz) - Male</option>
+                                <option value="207.65">G#3 (207.65 Hz) - Male</option>
+                                <option value="220.00">A3 (220.00 Hz) - Male High</option>
+                                <option value="233.08">A#3 (233.08 Hz) - Male High</option>
+                                <option value="246.94">B3 (246.94 Hz) - Male High</option>
+                                <option value="261.63">C4 (261.63 Hz) - Female Low</option>
+                                <option value="277.18">C#4 (277.18 Hz) - Female Low</option>
+                                <option value="293.66">D4 (293.66 Hz) - Female</option>
+                                <option value="311.13">D#4 (311.13 Hz) - Female</option>
+                                <option value="329.63">E4 (329.63 Hz) - Female</option>
+                                <option value="349.23">F4 (349.23 Hz) - Female</option>
+                                <option value="369.99">F#4 (369.99 Hz) - Female</option>
+                                <option value="392.00">G4 (392.00 Hz) - Female</option>
+                                <option value="415.30">G#4 (415.30 Hz) - Female</option>
+                                <option value="440.00" selected>A4 (440.00 Hz) - Female High</option>
+                                <option value="466.16">A#4 (466.16 Hz) - Female High</option>
+                                <option value="493.88">B4 (493.88 Hz) - Female High</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <button id="toggleDrone" class="btn btn-secondary">
+                                <span class="btn-icon">▶️</span>
+                                <span class="btn-text">Play</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="control-card secondary-control">
+                        <h3>🌐 Language</h3>
+                        <div class="control-group">
+                            <label>Language</label>
+                            <select id="language">
+                                <option value="english">English</option>
+                                <option value="kannada">ಕನ್ನಡ</option>
+                                <option value="telugu">తెలుగు</option>
+                                <option value="hindi">हिन्दी</option>
+                                <option value="sanskrit">संस्कृत</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+            <!-- Step 2: Prepare -->
+            <div class="workflow-step">
+                <div class="step-header">
+                    <span class="step-number">2</span>
+                    <h2>Add Your Lyrics</h2>
+                    <p>Enter the text you'll be singing</p>
+                </div>
+                
+                <div class="lyrics-card">
+                    <div class="lyrics-header">
+                        <h3>📝 Lyrics</h3>
+                    </div>
+                    <textarea id="lyricsInput" class="lyrics-input" placeholder="Enter your lyrics here..."></textarea>
+                </div>
+            </div>
+
+            <!-- Step 3: Record -->
+            <div class="workflow-step">
+                <div class="step-header">
+                    <span class="step-number">3</span>
+                    <h2>Record & Analyze</h2>
+                    <p>Start recording to see real-time analysis</p>
+                </div>
+                
+                <div class="recording-section">
+                    <div class="primary-actions">
+                        <button id="startRecord" class="btn btn-primary btn-large">
+                            <span class="btn-icon">🔴</span>
+                            <span class="btn-text">Start Recording</span>
+                        </button>
+                        <button id="stopRecord" class="btn btn-danger btn-large" disabled>
+                            <span class="btn-icon">⏹️</span>
+                            <span class="btn-text">Stop Recording</span>
+                        </button>
+                    </div>
+                    
+                    <div class="secondary-actions">
+                        <button id="playback" class="btn btn-secondary" disabled>
+                            <span class="btn-icon">▶️</span>
+                            <span class="btn-text">Playback</span>
+                        </button>
+                        <button id="exportAudio" class="btn btn-secondary" disabled>
+                            <span class="btn-icon">💾</span>
+                            <span class="btn-text">Export Audio</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="visualization">
+            <h3>🎵 Real-time Pitch</h3>
+            <div id="pitchDisplay" class="pitch-display">-</div>
+            <div id="pitchDeviation" class="pitch-deviation">-</div>
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <div class="notation-section">
+            <h3>
+                🎼 Live Notation
+                <div class="notation-actions">
+                    <button id="clearLive" class="clear-btn">Clear</button>
+                    <button id="exportNotation" class="btn btn-small">
+                        <span class="btn-icon">📄</span>
+                        Export
+                    </button>
+                </div>
+            </h3>
+            <div id="liveNotation"></div>
+        </div>
+
+        <div class="notation-section" id="syllableDisplay">
+            <h3>🎯 Synchronized Notation</h3>
+        </div>
+    </div>
+
+    <!-- Help Modal -->
+    <div id="helpModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>🎵 Svara Lekhini Help</h2>
+            
+            <div class="help-section">
+                <h3>🚀 Getting Started</h3>
+                <ol>
+                    <li>Allow microphone access when prompted</li>
+                    <li>Choose your notation style (Western or Carnatic)</li>
+                    <li>Select your shruti (base pitch Sa) from C3 to B4 range</li>
+                    <li>Choose your preferred language for lyrics</li>
+                    <li>Click "Play" button to hear your selected shruti</li>
+                    <li>Enter lyrics in the text area</li>
+                    <li>Click "Start Recording" and sing along</li>
+                    <li>Click "Stop Recording" when finished</li>
+                    <li>Click "Analyze" to see your notation results</li>
+                </ol>
+            </div>
+
+            <div class="help-section">
+                <h3>🎼 Notation Systems</h3>
+                <ul>
+                    <li><strong>Carnatic:</strong> Sa, Ri₁, Ri₂, Ga₁, Ga₂, Ma₁, Ma₂, Pa, Dha₁, Dha₂, Ni₁, Ni₂</li>
+                    <li><strong>Western:</strong> C, C#, D, D#, E, F, F#, G, G#, A, A#, B</li>
+                    <li><strong>Duration (Carnatic):</strong> Sa (1 unit), Sa, (2 units), Sa; (3 units), Sa,, (4 units)</li>
+                    <li><strong>Comma (,):</strong> Adds 1 unit of time</li>
+                    <li><strong>Semicolon (;):</strong> Adds 2 units of time</li>
+                    <li><strong>Glides:</strong> Sa~ (gamaka/pitch bend)</li>
+                </ul>
+            </div>
+
+            <div class="help-section">
+                <h3>🎛️ Features</h3>
+                <ul>
+                    <li><strong>Theme Toggle:</strong> Switch between light and dark themes</li>
+                    <li><strong>Multi-language:</strong> English, Kannada, Telugu, Hindi, Sanskrit</li>
+                    <li><strong>Real-time Analysis:</strong> Live pitch detection while singing</li>
+                    <li><strong>Export Options:</strong> Save audio (WebM) and notation (text)</li>
+                    <li><strong>Progressive Disclosure:</strong> UI adapts based on your selections</li>
+                </ul>
+            </div>
+
+            <div class="help-section">
+                <h3>💡 Tips</h3>
+                <ul>
+                    <li>Use headphones to prevent feedback when using reference tone</li>
+                    <li>Sing clearly and sustain notes for better recognition</li>
+                    <li>The app filters out notes shorter than 100ms automatically</li>
+                    <li>Male singers: Choose C3-B3 range, Female singers: C4-B4 range</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/pitchy@4.0.5/dist/pitchy.min.js"></script>
+    <script src="languages.js"></script>
+    <script src="app.js"></script>
+    <script>
+        // Theme toggle functionality
+        document.getElementById('themeToggle').addEventListener('click', function() {
+            const body = document.body;
+            const currentTheme = body.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            
+            body.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+        });
+
+        // Load saved theme
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.body.setAttribute('data-theme', savedTheme);
+    </script>
+
+    <footer style="text-align: center; padding: 20px; margin-top: 40px; color: var(--text-secondary); font-size: 0.9em;">
+        Created by Sumvid Solutions
+    </footer>
+</body>
+</html>

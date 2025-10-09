@@ -1,0 +1,16 @@
+{
+  "name": "svarascribe",
+  "version": "1.0.0",
+  "description": "Carnatic Music Analysis & Notation",
+  "main": "app.js",
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch"
+  },
+  "devDependencies": {
+    "jest": "^29.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node"
+  }
+}
