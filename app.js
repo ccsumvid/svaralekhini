@@ -800,9 +800,9 @@ class SvaraScribe {
         // Use liveNotation data instead of filtered data to preserve all notes
         const notesToDisplay = this.liveNotation.length > 0 ? this.liveNotation : data;
         
-        // Initialize syllable-note mapping if not exists
-        if (!this.syllableNoteMapping) {
-            this.syllableNoteMapping = this.syllables.map((_, index) => index);
+        // Smart initial mapping based on note count vs syllable count
+        if (!this.syllableNoteMapping || this.syllableNoteMapping.length !== this.syllables.length) {
+            this.syllableNoteMapping = this.createSmartMapping(notesToDisplay.length, this.syllables.length);
         }
         
         // Create container for interactive notation
@@ -810,7 +810,7 @@ class SvaraScribe {
         notationContainer.className = 'interactive-notation';
         notationContainer.style.cssText = `
             display: grid;
-            grid-template-columns: repeat(${Math.max(notesToDisplay.length, this.syllables.length)}, 1fr);
+            grid-template-columns: repeat(${notesToDisplay.length}, 1fr);
             gap: 10px;
             margin: 20px 0;
             align-items: start;
@@ -904,6 +904,25 @@ class SvaraScribe {
         
         // Add event listeners for moving syllables
         this.addSyllableMoveListeners(notationContainer, noteElements);
+    }
+    
+    createSmartMapping(noteCount, syllableCount) {
+        const mapping = [];
+        
+        if (syllableCount <= noteCount) {
+            // Distribute syllables evenly across notes
+            const step = noteCount / syllableCount;
+            for (let i = 0; i < syllableCount; i++) {
+                mapping.push(Math.floor(i * step));
+            }
+        } else {
+            // More syllables than notes - map multiple syllables to some notes
+            for (let i = 0; i < syllableCount; i++) {
+                mapping.push(Math.floor(i * noteCount / syllableCount));
+            }
+        }
+        
+        return mapping;
     }
     
     positionSyllables(container, noteElements) {
