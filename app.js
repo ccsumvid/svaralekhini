@@ -1206,8 +1206,6 @@ class SvaraScribe {
         tooltip.style.left = x + 'px';
         tooltip.style.top = y + 'px';
     }
-        liveNotationDiv.scrollTop = liveNotationDiv.scrollHeight;
-    }
 
     getDurationClass(duration) {
         if (duration < 300) return 'duration-short';
