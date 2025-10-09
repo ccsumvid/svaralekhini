@@ -1035,12 +1035,16 @@ class SvaraScribe {
             displayNote = this.languageSupport.getFormattedSvara(svaraData.index, language, svaraData.octave);
         }
         
+        // Capture current waveform data
+        const waveformData = this.captureWaveform();
+        
         // Check if this is the same note as current
         if (this.currentNote && this.currentNote.svara === svaraData.svara && this.currentNote.octave === svaraData.octave) {
-            // Same note - update duration and pitch
+            // Same note - update duration, pitch, and waveform
             this.currentNote.duration = currentTime - this.currentNote.startTime;
             this.currentNote.displayNote = displayNote;
-            this.currentNote.pitch = svaraData.pitch; // Store current pitch
+            this.currentNote.pitch = svaraData.pitch;
+            this.currentNote.waveform = waveformData; // Update with latest waveform
         } else {
             // Different note - finalize previous and start new
             if (this.currentNote && (currentTime - this.currentNote.startTime) >= minNoteDuration) {
@@ -1055,12 +1059,39 @@ class SvaraScribe {
                 displayNote: displayNote,
                 startTime: currentTime,
                 duration: 0,
-                pitch: svaraData.pitch // Store pitch in Hz
+                pitch: svaraData.pitch,
+                waveform: waveformData // Store initial waveform
             };
         }
         
         // Update live display
         this.displayLiveNotation();
+    }
+    
+    captureWaveform() {
+        if (!this.analyser) return [];
+        
+        const bufferLength = 128; // Smaller buffer for tooltip display
+        const dataArray = new Uint8Array(bufferLength);
+        this.analyser.getByteTimeDomainData(dataArray);
+        
+        // Convert to normalized values (-1 to 1)
+        return Array.from(dataArray).map(value => (value - 128) / 128);
+    }
+    
+    generateWaveformSVG(waveform, width = 200, height = 60) {
+        if (!waveform || waveform.length === 0) return '';
+        
+        const points = waveform.map((value, index) => {
+            const x = (index / waveform.length) * width;
+            const y = (height / 2) + (value * height / 4); // Scale to quarter height
+            return `${x},${y}`;
+        }).join(' ');
+        
+        return `<svg width="${width}" height="${height}" style="background: rgba(0,0,0,0.1); border-radius: 4px; margin-top: 5px;">
+            <polyline points="${points}" fill="none" stroke="#00ff00" stroke-width="1"/>
+            <line x1="0" y1="${height/2}" x2="${width}" y2="${height/2}" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+        </svg>`;
     }
 
     displayLiveNotation() {
@@ -1075,8 +1106,11 @@ class SvaraScribe {
             const durationClass = this.getDurationClass(note.duration);
             const durationIndicator = this.getDurationIndicator(note.duration);
             const pitchHz = note.pitch ? note.pitch.toFixed(2) : 'N/A';
+            const waveformSVG = this.generateWaveformSVG(note.waveform);
             
-            html += `<span class="live-note ${durationClass}" title="Pitch: ${pitchHz} Hz | Duration: ${note.duration}ms">
+            html += `<span class="live-note ${durationClass}" 
+                data-tooltip="Pitch: ${pitchHz} Hz | Duration: ${note.duration}ms${waveformSVG ? '<br>' + waveformSVG : ''}"
+                onmouseover="this.showTooltip(event)" onmouseout="this.hideTooltip()">
                 ${note.displayNote}${durationIndicator}
             </span>`;
         });
@@ -1087,8 +1121,11 @@ class SvaraScribe {
             const durationClass = this.getDurationClass(currentDuration);
             const durationIndicator = this.getDurationIndicator(currentDuration);
             const pitchHz = this.currentNote.pitch ? this.currentNote.pitch.toFixed(2) : 'N/A';
+            const waveformSVG = this.generateWaveformSVG(this.currentNote.waveform);
             
-            html += `<span class="live-note current ${durationClass}" title="Pitch: ${pitchHz} Hz | Duration: ${currentDuration}ms">
+            html += `<span class="live-note current ${durationClass}" 
+                data-tooltip="Pitch: ${pitchHz} Hz | Duration: ${currentDuration}ms${waveformSVG ? '<br>' + waveformSVG : ''}"
+                onmouseover="this.showTooltip(event)" onmouseout="this.hideTooltip()">
                 ${this.currentNote.displayNote}${durationIndicator}
             </span>`;
         }
@@ -1114,6 +1151,61 @@ class SvaraScribe {
         }
         
         liveNotationDiv.innerHTML = html;
+        
+        // Add tooltip functionality
+        this.addTooltipListeners(liveNotationDiv);
+    }
+    
+    addTooltipListeners(container) {
+        const tooltip = this.getOrCreateTooltip();
+        
+        container.querySelectorAll('.live-note[data-tooltip]').forEach(note => {
+            note.addEventListener('mouseenter', (e) => {
+                const tooltipContent = e.target.getAttribute('data-tooltip');
+                tooltip.innerHTML = tooltipContent;
+                tooltip.style.display = 'block';
+                this.positionTooltip(tooltip, e);
+            });
+            
+            note.addEventListener('mouseleave', () => {
+                tooltip.style.display = 'none';
+            });
+            
+            note.addEventListener('mousemove', (e) => {
+                this.positionTooltip(tooltip, e);
+            });
+        });
+    }
+    
+    getOrCreateTooltip() {
+        let tooltip = document.getElementById('waveform-tooltip');
+        if (!tooltip) {
+            tooltip = document.createElement('div');
+            tooltip.id = 'waveform-tooltip';
+            tooltip.style.cssText = `
+                position: absolute;
+                background: rgba(0, 0, 0, 0.9);
+                color: white;
+                padding: 10px;
+                border-radius: 6px;
+                font-size: 12px;
+                z-index: 1000;
+                pointer-events: none;
+                display: none;
+                max-width: 250px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            `;
+            document.body.appendChild(tooltip);
+        }
+        return tooltip;
+    }
+    
+    positionTooltip(tooltip, event) {
+        const x = event.pageX + 10;
+        const y = event.pageY - 10;
+        tooltip.style.left = x + 'px';
+        tooltip.style.top = y + 'px';
+    }
         liveNotationDiv.scrollTop = liveNotationDiv.scrollHeight;
     }
 
