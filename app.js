@@ -936,8 +936,11 @@ class SvaraScribe {
                 const noteElement = noteElements[noteIndex];
                 const rect = noteElement.getBoundingClientRect();
                 const containerRect = container.getBoundingClientRect();
-                syllableDiv.style.left = `${rect.left - containerRect.left + rect.width/2 - 50}px`;
-                syllableDiv.style.top = `-40px`;
+                
+                // Position syllable directly below its corresponding note
+                const leftPosition = rect.left - containerRect.left + (rect.width / 2) - 40; // Center align
+                syllableDiv.style.left = `${leftPosition}px`;
+                syllableDiv.style.top = `80px`; // Below the notes
             }
         });
     }
@@ -1011,7 +1014,9 @@ class SvaraScribe {
                 const containerRect = container.getBoundingClientRect();
                 
                 syllableDiv.style.transition = 'all 0.3s ease';
-                syllableDiv.style.left = `${rect.left - containerRect.left + rect.width/2 - 50}px`;
+                const leftPosition = rect.left - containerRect.left + (rect.width / 2) - 40;
+                syllableDiv.style.left = `${leftPosition}px`;
+                syllableDiv.style.top = `80px`;
             }
         });
     }
