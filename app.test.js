@@ -13,7 +13,7 @@ describe('Svara Lekhini Core Functions', () => {
     // Test traditional Carnatic duration notation
     const formatDuration = (duration) => {
       if (duration <= 300) return '';
-      const additionalUnits = Math.floor((duration - 300) / 200) + 1;
+      const additionalUnits = Math.floor((duration - 300) / 200);
       let remainingUnits = additionalUnits;
       let marker = '';
       while (remainingUnits >= 2) { marker += ';'; remainingUnits -= 2; }
@@ -22,8 +22,8 @@ describe('Svara Lekhini Core Functions', () => {
     };
     
     expect(formatDuration(250)).toBe('');
-    expect(formatDuration(500)).toBe(',');
-    expect(formatDuration(700)).toBe(';');
+    expect(formatDuration(500)).toBe(','); // 500-300=200, floor(200/200)=1 remaining unit = ','
+    expect(formatDuration(700)).toBe(';'); // 700-300=400, floor(400/200)=2 remaining units = ';'
   });
 
   test('Svara names mapping', () => {
