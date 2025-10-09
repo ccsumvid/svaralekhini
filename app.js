@@ -23,6 +23,14 @@ class SvaraScribe {
         this.recentPitches = [];
         this.stablePitch = null;
         
+        // Syllable detection data
+        this.audioFeatures = [];
+        this.detectedSyllables = [];
+        this.currentSyllableNotes = [];
+        this.lastOnsetTime = 0;
+        this.silenceThreshold = 0.01;
+        this.onsetThreshold = 0.3;
+        
         // Initialize language support
         this.languageSupport = new LanguageSupport();
         
@@ -325,11 +333,17 @@ class SvaraScribe {
                 }
                 
                 if (pitch && pitch > 80 && pitch < 2000) {
+                    // Extract audio features for syllable detection
+                    const audioFeatures = this.extractAudioFeatures(dataArray, pitch);
+                    
                     // Check if this is likely background noise
                     if (this.isBackgroundNoise(pitch, dataArray)) {
                         requestAnimationFrame(detectPitch);
                         return; // Skip this pitch detection but continue loop
                     }
+                    
+                    // Detect syllable boundaries
+                    const isNewSyllable = this.detectSyllableBoundary(audioFeatures, currentTime);
                     
                     // Stabilize pitch to reduce fluctuations
                     const stabilizedPitch = this.stabilizePitch(pitch);
@@ -340,13 +354,12 @@ class SvaraScribe {
                     
                     const svaraData = this.frequencyToSvara(stabilizedPitch);
                     svaraData.pitch = stabilizedPitch; // Add pitch to svaraData
-                    const currentTime = Date.now();
                     
                     // Add to pitch data
                     this.pitchData.push({ pitch: stabilizedPitch, svara: svaraData.svara, svaraIndex: svaraData.index, octave: svaraData.octave, time: currentTime });
                     
-                    // Update live notation
-                    this.updateLiveNotation(svaraData, currentTime);
+                    // Update live notation with syllable detection
+                    this.updateLiveNotationWithSyllables(svaraData, currentTime, isNewSyllable);
                     
                     // Update visualization
                     this.updateVisualization(stabilizedPitch, svaraData);
@@ -428,6 +441,128 @@ class SvaraScribe {
         
         // If not stable, return previous stable pitch if available
         return this.stablePitch;
+    }
+    
+    extractAudioFeatures(dataArray, pitch) {
+        // Calculate RMS amplitude
+        let rms = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+            const normalized = (dataArray[i] - 128) / 128;
+            rms += normalized * normalized;
+        }
+        rms = Math.sqrt(rms / dataArray.length);
+        
+        // Calculate zero crossing rate
+        let zeroCrossings = 0;
+        for (let i = 1; i < dataArray.length; i++) {
+            if ((dataArray[i] - 128) * (dataArray[i-1] - 128) < 0) {
+                zeroCrossings++;
+            }
+        }
+        const zcr = zeroCrossings / dataArray.length;
+        
+        return { rms, zcr, spectralCentroid: pitch, timestamp: Date.now() };
+    }
+    
+    detectSyllableBoundary(currentFeatures, currentTime) {
+        this.audioFeatures.push(currentFeatures);
+        
+        // Keep only recent features (last 1 second)
+        const oneSecondAgo = currentTime - 1000;
+        this.audioFeatures = this.audioFeatures.filter(f => f.timestamp > oneSecondAgo);
+        
+        if (this.audioFeatures.length < 5) return false;
+        
+        // Get recent features for comparison
+        const recent = this.audioFeatures.slice(-5);
+        const previous = this.audioFeatures.slice(-10, -5);
+        
+        if (previous.length === 0) return false;
+        
+        // Calculate average features
+        const avgRecentRMS = recent.reduce((sum, f) => sum + f.rms, 0) / recent.length;
+        const avgPrevRMS = previous.reduce((sum, f) => sum + f.rms, 0) / previous.length;
+        const avgRecentZCR = recent.reduce((sum, f) => sum + f.zcr, 0) / recent.length;
+        const avgPrevZCR = previous.reduce((sum, f) => sum + f.zcr, 0) / previous.length;
+        
+        // Detect onset conditions
+        const amplitudeIncrease = avgRecentRMS > avgPrevRMS * (1 + this.onsetThreshold);
+        const spectralChange = Math.abs(avgRecentZCR - avgPrevZCR) > 0.02;
+        const timeSinceLastOnset = currentTime - this.lastOnsetTime > 300; // Min 300ms between syllables
+        
+        // Detect silence gap
+        const wasSilent = avgPrevRMS < this.silenceThreshold;
+        const nowActive = avgRecentRMS > this.silenceThreshold;
+        
+        const isNewSyllable = timeSinceLastOnset && (
+            (amplitudeIncrease && spectralChange) || 
+            (wasSilent && nowActive)
+        );
+        
+        if (isNewSyllable) {
+            this.lastOnsetTime = currentTime;
+        }
+        
+        return isNewSyllable;
+    }
+    
+    updateLiveNotationWithSyllables(svaraData, currentTime, isNewSyllable) {
+        const notationStyle = document.getElementById('notationStyle').value;
+        const language = document.getElementById('language').value;
+        const minNoteDuration = 150; // ms
+        
+        // Get display note
+        let displayNote;
+        if (notationStyle === 'western') {
+            displayNote = this.westernNotes[svaraData.index % 12];
+        } else {
+            displayNote = this.languageSupport.getFormattedSvara(svaraData.index, language, svaraData.octave);
+        }
+        
+        // Capture current waveform data
+        const waveformData = this.captureWaveform();
+        
+        const noteData = {
+            svara: svaraData.svara,
+            svaraIndex: svaraData.index,
+            octave: svaraData.octave,
+            displayNote: displayNote,
+            startTime: currentTime,
+            duration: 0,
+            pitch: svaraData.pitch,
+            waveform: waveformData
+        };
+        
+        // Handle syllable grouping
+        if (isNewSyllable) {
+            // Finalize previous syllable if exists
+            if (this.currentSyllableNotes.length > 0) {
+                this.detectedSyllables.push([...this.currentSyllableNotes]);
+                this.currentSyllableNotes = [];
+            }
+        }
+        
+        // Check if this is the same note as current
+        if (this.currentNote && this.currentNote.svara === svaraData.svara && this.currentNote.octave === svaraData.octave && !isNewSyllable) {
+            // Same note - update duration and pitch
+            this.currentNote.duration = currentTime - this.currentNote.startTime;
+            this.currentNote.displayNote = displayNote;
+            this.currentNote.pitch = svaraData.pitch;
+            this.currentNote.waveform = waveformData;
+        } else {
+            // Different note or new syllable - finalize previous and start new
+            if (this.currentNote && (currentTime - this.currentNote.startTime) >= minNoteDuration) {
+                this.liveNotation.push({...this.currentNote});
+                this.currentSyllableNotes.push({...this.currentNote});
+            }
+            
+            // Start new note
+            this.currentNote = noteData;
+        }
+        
+        // Update live display
+        this.displayLiveNotation();
+    }
     }
 
     isBackgroundNoise(pitch, audioBuffer) {
@@ -801,9 +936,12 @@ class SvaraScribe {
         // Use liveNotation data instead of filtered data to preserve all notes
         const notesToDisplay = this.liveNotation.length > 0 ? this.liveNotation : data;
         
-        // Smart initial mapping based on note count vs syllable count
-        if (!this.syllableNoteMapping || this.syllableNoteMapping.length !== this.syllables.length) {
-            this.syllableNoteMapping = this.createSmartMapping(notesToDisplay.length, this.syllables.length);
+        // Smart initial mapping based on detected syllables or provided lyrics
+        const syllablesToUse = this.detectedSyllables.length > 0 ? this.detectedSyllables : this.syllables;
+        const syllableCount = syllablesToUse.length;
+        
+        if (!this.syllableNoteMapping || this.syllableNoteMapping.length !== syllableCount) {
+            this.syllableNoteMapping = this.createSmartMapping(notesToDisplay.length, syllableCount);
         }
         
         // Create container for interactive notation
@@ -863,8 +1001,12 @@ class SvaraScribe {
             notationContainer.appendChild(noteDiv);
         });
         
-        // Create syllable elements
-        this.syllables.forEach((syllable, syllableIndex) => {
+        // Create syllable elements (use detected syllables if available)
+        const syllablesToDisplay = this.detectedSyllables.length > 0 ? 
+            this.detectedSyllables.map((notes, index) => `Syl-${index + 1}`) : 
+            this.syllables;
+            
+        syllablesToDisplay.forEach((syllable, syllableIndex) => {
             const syllableDiv = document.createElement('div');
             syllableDiv.className = 'syllable-interactive';
             syllableDiv.dataset.syllableIndex = syllableIndex;
@@ -885,12 +1027,15 @@ class SvaraScribe {
                 gap: 5px;
             `;
             
-            const iast = language !== 'english' ? this.syllablesIAST[syllableIndex] : '';
+            const iast = (language !== 'english' && this.syllablesIAST && syllableIndex < this.syllablesIAST.length) ? 
+                this.syllablesIAST[syllableIndex] : '';
             syllableDiv.innerHTML = `
                 <button class="move-btn" data-direction="left" style="background: none; border: none; color: white; cursor: pointer; font-size: 12px;">◀</button>
                 <div style="text-align: center;">
                     <div>${syllable}</div>
                     ${iast ? `<div style="font-size: 10px; opacity: 0.8;">${iast}</div>` : ''}
+                    ${this.detectedSyllables.length > 0 && syllableIndex < this.detectedSyllables.length ? 
+                        `<div style="font-size: 8px; opacity: 0.6;">${this.detectedSyllables[syllableIndex].length} notes</div>` : ''}
                 </div>
                 <button class="move-btn" data-direction="right" style="background: none; border: none; color: white; cursor: pointer; font-size: 12px;">▶</button>
             `;
