@@ -1109,8 +1109,7 @@ class SvaraScribe {
             const waveformSVG = this.generateWaveformSVG(note.waveform);
             
             html += `<span class="live-note ${durationClass}" 
-                data-tooltip="Pitch: ${pitchHz} Hz | Duration: ${note.duration}ms${waveformSVG ? '<br>' + waveformSVG : ''}"
-                onmouseover="this.showTooltip(event)" onmouseout="this.hideTooltip()">
+                data-tooltip="Pitch: ${pitchHz} Hz | Duration: ${note.duration}ms">
                 ${note.displayNote}${durationIndicator}
             </span>`;
         });
@@ -1124,8 +1123,7 @@ class SvaraScribe {
             const waveformSVG = this.generateWaveformSVG(this.currentNote.waveform);
             
             html += `<span class="live-note current ${durationClass}" 
-                data-tooltip="Pitch: ${pitchHz} Hz | Duration: ${currentDuration}ms${waveformSVG ? '<br>' + waveformSVG : ''}"
-                onmouseover="this.showTooltip(event)" onmouseout="this.hideTooltip()">
+                data-tooltip="Pitch: ${pitchHz} Hz | Duration: ${currentDuration}ms">
                 ${this.currentNote.displayNote}${durationIndicator}
             </span>`;
         }
@@ -1162,7 +1160,10 @@ class SvaraScribe {
         container.querySelectorAll('.live-note[data-tooltip]').forEach(note => {
             note.addEventListener('mouseenter', (e) => {
                 const tooltipContent = e.target.getAttribute('data-tooltip');
-                tooltip.innerHTML = tooltipContent;
+                const noteData = this.findNoteData(e.target);
+                const waveformSVG = noteData ? this.generateWaveformSVG(noteData.waveform) : '';
+                
+                tooltip.innerHTML = tooltipContent + (waveformSVG ? '<br><br>' + waveformSVG : '');
                 tooltip.style.display = 'block';
                 this.positionTooltip(tooltip, e);
             });
@@ -1205,6 +1206,20 @@ class SvaraScribe {
         const y = event.pageY - 10;
         tooltip.style.left = x + 'px';
         tooltip.style.top = y + 'px';
+    }
+    
+    findNoteData(element) {
+        const noteText = element.textContent.replace(/[,;]/g, ''); // Remove duration markers
+        const isCurrent = element.classList.contains('current');
+        
+        if (isCurrent && this.currentNote) {
+            return this.currentNote;
+        }
+        
+        // Find in liveNotation array
+        return this.liveNotation.find(note => 
+            note.displayNote.replace(/[,;]/g, '') === noteText
+        );
     }
 
     getDurationClass(duration) {
