@@ -339,6 +339,7 @@ class SvaraScribe {
                     }
                     
                     const svaraData = this.frequencyToSvara(stabilizedPitch);
+                    svaraData.pitch = stabilizedPitch; // Add pitch to svaraData
                     const currentTime = Date.now();
                     
                     // Add to pitch data
@@ -1036,9 +1037,10 @@ class SvaraScribe {
         
         // Check if this is the same note as current
         if (this.currentNote && this.currentNote.svara === svaraData.svara && this.currentNote.octave === svaraData.octave) {
-            // Same note - update duration
+            // Same note - update duration and pitch
             this.currentNote.duration = currentTime - this.currentNote.startTime;
             this.currentNote.displayNote = displayNote;
+            this.currentNote.pitch = svaraData.pitch; // Store current pitch
         } else {
             // Different note - finalize previous and start new
             if (this.currentNote && (currentTime - this.currentNote.startTime) >= minNoteDuration) {
@@ -1052,7 +1054,8 @@ class SvaraScribe {
                 octave: svaraData.octave,
                 displayNote: displayNote,
                 startTime: currentTime,
-                duration: 0
+                duration: 0,
+                pitch: svaraData.pitch // Store pitch in Hz
             };
         }
         
@@ -1071,8 +1074,9 @@ class SvaraScribe {
         this.liveNotation.forEach((note, index) => {
             const durationClass = this.getDurationClass(note.duration);
             const durationIndicator = this.getDurationIndicator(note.duration);
+            const pitchHz = note.pitch ? note.pitch.toFixed(2) : 'N/A';
             
-            html += `<span class="live-note ${durationClass}" title="${note.duration}ms">
+            html += `<span class="live-note ${durationClass}" title="Pitch: ${pitchHz} Hz | Duration: ${note.duration}ms">
                 ${note.displayNote}${durationIndicator}
             </span>`;
         });
@@ -1082,8 +1086,9 @@ class SvaraScribe {
             const currentDuration = Date.now() - this.currentNote.startTime;
             const durationClass = this.getDurationClass(currentDuration);
             const durationIndicator = this.getDurationIndicator(currentDuration);
+            const pitchHz = this.currentNote.pitch ? this.currentNote.pitch.toFixed(2) : 'N/A';
             
-            html += `<span class="live-note current ${durationClass}" title="${currentDuration}ms">
+            html += `<span class="live-note current ${durationClass}" title="Pitch: ${pitchHz} Hz | Duration: ${currentDuration}ms">
                 ${this.currentNote.displayNote}${durationIndicator}
             </span>`;
         }
