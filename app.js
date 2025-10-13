@@ -324,7 +324,7 @@ class SvaraScribe {
             this.analyser.getFloatTimeDomainData(dataArray);
             
             try {
-                let pitch;
+                var pitch;
                 if (typeof Pitchy !== 'undefined' && Pitchy.findPitch) {
                     pitch = Pitchy.findPitch(dataArray, this.audioContext.sampleRate);
                 } else {
@@ -563,12 +563,11 @@ class SvaraScribe {
         // Update live display
         this.displayLiveNotation();
     }
-    }
 
     isBackgroundNoise(pitch, audioBuffer) {
         // Calculate RMS (volume level)
-        let rms = 0;
-        for (let i = 0; i < audioBuffer.length; i++) {
+        var rms = 0;
+        for (var i = 0; i < audioBuffer.length; i++) {
             rms += audioBuffer[i] * audioBuffer[i];
         }
         rms = Math.sqrt(rms / audioBuffer.length);
@@ -1244,7 +1243,7 @@ class SvaraScribe {
         const notationStyle = document.getElementById('notationStyle').value;
         const language = document.getElementById('language').value;
         
-        let html = '';
+        var html = '';
         
         // Show finalized notes with duration representation
         this.liveNotation.forEach((note, index) => {

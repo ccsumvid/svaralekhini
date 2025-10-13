@@ -60,20 +60,72 @@ class LanguageSupport {
     }
 
     splitIntoSyllables(text, language) {
-        // Basic syllable splitting - can be enhanced with proper linguistic rules
         switch (language) {
             case 'english':
-                return text.split(/[\s\-]+/).filter(s => s.length > 0);
+                return text.split(/[\s\-]+/).filter(function(s) { return s.length > 0; });
             case 'hindi':
             case 'sanskrit':
             case 'kannada':
             case 'telugu':
-                // For Indic languages, split on spaces and common punctuation
-                // In production, use proper syllable detection algorithms
-                return text.split(/[\s\-।॥]+/).filter(s => s.length > 0);
+                return this.splitIndicSyllables(text);
             default:
-                return text.split(/[\s\-]+/).filter(s => s.length > 0);
+                return text.split(/[\s\-]+/).filter(function(s) { return s.length > 0; });
         }
+    }
+
+    splitIndicSyllables(text) {
+        var words = text.split(/[\s\-।॥]+/).filter(function(s) { return s.length > 0; });
+        var syllables = [];
+        
+        for (var i = 0; i < words.length; i++) {
+            var wordSyllables = this.splitWordIntoSyllables(words[i]);
+            for (var j = 0; j < wordSyllables.length; j++) {
+                syllables.push(wordSyllables[j]);
+            }
+        }
+        
+        return syllables;
+    }
+
+    splitWordIntoSyllables(word) {
+        if (!word || word.length === 0) return [];
+        
+        var syllables = [];
+        var currentSyllable = '';
+        
+        for (var i = 0; i < word.length; i++) {
+            var char = word[i];
+            var charCode = char.charCodeAt(0);
+            
+            var isTeluguConsonant = (charCode >= 0x0C15 && charCode <= 0x0C39);
+            var isTeluguVowel = (charCode >= 0x0C05 && charCode <= 0x0C14);
+            var isTeluguMatra = (charCode >= 0x0C3E && charCode <= 0x0C4C);
+            
+            currentSyllable += char;
+            
+            var nextChar = i < word.length - 1 ? word[i + 1] : null;
+            var nextCharCode = nextChar ? nextChar.charCodeAt(0) : 0;
+            
+            var nextIsConsonant = nextChar && (nextCharCode >= 0x0C15 && nextCharCode <= 0x0C39);
+            var nextIsMatra = nextChar && (nextCharCode >= 0x0C3E && nextCharCode <= 0x0C4C);
+            
+            if (i === word.length - 1 || 
+                (isTeluguVowel && nextIsConsonant) ||
+                (isTeluguMatra && nextIsConsonant) ||
+                (isTeluguConsonant && nextIsConsonant && !nextIsMatra)) {
+                
+                if (currentSyllable.trim()) {
+                    syllables.push(currentSyllable.trim());
+                }
+                currentSyllable = '';
+            }
+        }
+        
+        if (currentSyllable.trim()) {
+            syllables.push(currentSyllable.trim());
+        }
+        
+        return syllables.length > 0 ? syllables : [word];
     }
 
     getSvaraNames(notationStyle, language) {
@@ -114,11 +166,20 @@ class LanguageSupport {
             formattedName = baseName + (svaraIndex === 10 ? '₁' : '₂');
         }
         
-        // Add octave indicators
-        if (octave < 0) {
-            formattedName = formattedName + '̣'; // Dot below for lower octave
-        } else if (octave > 0) {
-            formattedName = formattedName + '̇'; // Dot above for higher octave
+        // Add octave indicators - use alternative notation for Telugu
+        if (language === 'telugu') {
+            if (octave < 0) {
+                formattedName = formattedName + '̥'; // Use ring below instead of dot below
+            } else if (octave > 0) {
+                formattedName = formattedName + '̊'; // Use ring above instead of dot above
+            }
+        } else {
+            // For other languages, use standard combining diacritical marks
+            if (octave < 0) {
+                formattedName = formattedName + '̣'; // Dot below for lower octave
+            } else if (octave > 0) {
+                formattedName = formattedName + '̇'; // Dot above for higher octave
+            }
         }
         
         return formattedName;
