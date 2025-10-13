@@ -333,6 +333,9 @@ class SvaraScribe {
                 }
                 
                 if (pitch && pitch > 80 && pitch < 2000) {
+                    // Get current time for timing calculations
+                    const currentTime = Date.now();
+                    
                     // Extract audio features for syllable detection
                     const audioFeatures = this.extractAudioFeatures(dataArray, pitch);
                     
@@ -379,11 +382,11 @@ class SvaraScribe {
     simpleAutocorrelation(buffer, sampleRate) {
         const SIZE = buffer.length;
         const MAX_SAMPLES = Math.floor(SIZE / 2);
-        let bestOffset = -1;
-        let bestCorrelation = 0;
-        let rms = 0;
+        var bestOffset = -1;
+        var bestCorrelation = 0;
+        var rms = 0;
         
-        for (let i = 0; i < SIZE; i++) {
+        for (var i = 0; i < SIZE; i++) {
             const val = buffer[i];
             rms += val * val;
         }
@@ -391,10 +394,10 @@ class SvaraScribe {
         
         if (rms < 0.01) return null; // Too quiet
         
-        let lastCorrelation = 1;
-        for (let offset = 1; offset < MAX_SAMPLES; offset++) {
-            let correlation = 0;
-            for (let i = 0; i < MAX_SAMPLES; i++) {
+        var lastCorrelation = 1;
+        for (var offset = 1; offset < MAX_SAMPLES; offset++) {
+            var correlation = 0;
+            for (var i = 0; i < MAX_SAMPLES; i++) {
                 correlation += Math.abs((buffer[i]) - (buffer[i + offset]));
             }
             correlation = 1 - (correlation / MAX_SAMPLES);
@@ -445,8 +448,8 @@ class SvaraScribe {
     
     extractAudioFeatures(dataArray, pitch) {
         // Calculate RMS amplitude
-        let rms = 0;
-        for (let i = 0; i < dataArray.length; i++) {
+        var rms = 0;
+        for (var i = 0; i < dataArray.length; i++) {
             const normalized = (dataArray[i] - 128) / 128;
             rms += normalized * normalized;
         }
@@ -1057,12 +1060,12 @@ class SvaraScribe {
         if (syllableCount <= noteCount) {
             // Distribute syllables evenly across notes
             const step = noteCount / syllableCount;
-            for (let i = 0; i < syllableCount; i++) {
+            for (var i = 0; i < syllableCount; i++) {
                 mapping.push(Math.floor(i * step));
             }
         } else {
             // More syllables than notes - map multiple syllables to some notes
-            for (let i = 0; i < syllableCount; i++) {
+            for (var i = 0; i < syllableCount; i++) {
                 mapping.push(Math.floor(i * noteCount / syllableCount));
             }
         }
