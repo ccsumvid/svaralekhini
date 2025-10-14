@@ -134,7 +134,7 @@ class SvaraScribe {
     }
 
     initializeDial() {
-        const dialNotes = document.querySelector('.dial-notes');
+        const dialNotes = document.querySelector('.dial-notes-background');
         if (!dialNotes) return;
         
         // Clear existing notes
@@ -179,11 +179,12 @@ class SvaraScribe {
 
     updateDial(pitch, svaraData) {
         const dialNote = document.getElementById('dialNote');
+        const dialDelta = document.getElementById('dialDelta');
         const dialFreq = document.getElementById('dialFreq');
         const needle = document.querySelector('.dial-needle');
         
         // Check if dial elements exist
-        if (!dialNote || !dialFreq || !needle) return;
+        if (!dialNote || !dialDelta || !dialFreq || !needle) return;
         
         const notationStyle = document.getElementById('notationStyle').value;
         const language = document.getElementById('language').value;
@@ -212,7 +213,15 @@ class SvaraScribe {
         }
         
         dialNote.textContent = displayNote;
-        dialFreq.textContent = pitch.toFixed(1) + ' Hz';
+        
+        // Display deviation in delta layer (above Hz)
+        const deviation = Math.round(cents);
+        if (Math.abs(cents) < 50) {
+            const deviationText = deviation > 0 ? `+${deviation}¢` : `${deviation}¢`;
+            dialDelta.innerHTML = `<div style="color: ${Math.abs(deviation) < 10 ? '#28a745' : '#dc3545'}">${deviationText}</div><div id="dialFreq" class="dial-freq">${pitch.toFixed(1)} Hz</div>`;
+        } else {
+            dialDelta.innerHTML = `<div id="dialFreq" class="dial-freq">${pitch.toFixed(1)} Hz</div>`;
+        }
         
         // Update deviation display on dial notes
         this.updateDialDeviations(pitch, svaraData, notationStyle, language);
@@ -325,6 +334,7 @@ class SvaraScribe {
         document.getElementById('startRecord').addEventListener('click', () => this.startRecording());
         document.getElementById('stopRecord').addEventListener('click', () => this.stopRecording());
         document.getElementById('playback').addEventListener('click', () => this.togglePlayback());
+        document.getElementById('livePlayback').addEventListener('click', () => this.togglePlayback());
         document.getElementById('stopPlayback').addEventListener('click', () => this.stopPlayback());
         document.getElementById('toggleDrone').addEventListener('click', () => this.toggleDrone());
         document.getElementById('exportAudio').addEventListener('click', () => this.exportAudio());
@@ -590,6 +600,13 @@ class SvaraScribe {
             if (!initialized) return;
         }
 
+        // Warn user if they already have a recording
+        if (this.recordedChunks.length > 0) {
+            if (!confirm('You already have a recording. Starting a new recording will replace it. Continue?')) {
+                return;
+            }
+        }
+
         this.recordedChunks = [];
         this.pitchData = [];
         this.timeData = [];
@@ -623,7 +640,9 @@ class SvaraScribe {
         // Finalize the current note if it exists
         if (this.currentNote) {
             const currentTime = Date.now() - this.recordingStartTime;
-            this.currentNote.duration = currentTime - this.currentNote.startTime;
+            const calculatedDuration = currentTime - this.currentNote.startTime;
+            // Ensure duration is positive and reasonable (max 10 seconds)
+            this.currentNote.duration = Math.max(0, Math.min(calculatedDuration, 10000));
             const minNoteDuration = parseInt(document.getElementById('minNoteLength').value) || 50;
             
             // Apply same logic as during recording
@@ -663,9 +682,13 @@ class SvaraScribe {
             this.currentSyllableNotes = [];
         }
         
+        // Update display to remove current note styling
+        this.displayLiveNotation();
+        
         document.getElementById('startRecord').disabled = false;
         document.getElementById('stopRecord').disabled = true;
         document.getElementById('playback').disabled = false;
+        document.getElementById('livePlayback').disabled = false;
         document.getElementById('exportAudio').disabled = false;
         
         this.stopPitchDetection();
@@ -1022,6 +1045,7 @@ class SvaraScribe {
             octave: svaraData.octave,
             displayNote: displayNote,
             startTime: currentTime,
+            timestamp: currentTime, // Add actual timestamp for playback sync
             duration: 0,
             pitch: svaraData.pitch,
             waveform: waveformData
@@ -1053,14 +1077,16 @@ class SvaraScribe {
         
         if (!isNewNote) {
             // Same note - update duration and pitch
-            this.currentNote.duration = currentTime - this.currentNote.startTime;
+            const calculatedDuration = currentTime - this.currentNote.startTime;
+            this.currentNote.duration = Math.max(0, Math.min(calculatedDuration, 10000));
             this.currentNote.displayNote = displayNote;
             this.currentNote.pitch = svaraData.pitch;
             this.currentNote.waveform = waveformData;
         } else {
             // Different note or new syllable - finalize previous and start new
             if (this.currentNote) {
-                const noteDuration = currentTime - this.currentNote.startTime;
+                const calculatedDuration = currentTime - this.currentNote.startTime;
+                const noteDuration = Math.max(0, Math.min(calculatedDuration, 10000));
                 
                 if (noteDuration >= minNoteDuration) {
                     // Note is long enough, add it normally
@@ -1555,7 +1581,10 @@ class SvaraScribe {
     }
 
     togglePlayback() {
-        if (this.recordedChunks.length === 0) return;
+        if (this.recordedChunks.length === 0) {
+            alert('Please record some audio first before using playback.');
+            return;
+        }
         
         if (this.isPlayingBack) {
             this.pausePlayback();
@@ -1617,17 +1646,24 @@ class SvaraScribe {
 
     updatePlaybackButtons() {
         const playbackBtn = document.getElementById('playback');
+        const livePlaybackBtn = document.getElementById('livePlayback');
         const stopBtn = document.getElementById('stopPlayback');
         const playIcon = playbackBtn.querySelector('.btn-icon');
         const playText = playbackBtn.querySelector('.btn-text');
+        const livePlayIcon = livePlaybackBtn.querySelector('.btn-icon');
+        const livePlayText = livePlaybackBtn.querySelector('.btn-text');
         
         if (this.isPlayingBack) {
             playIcon.textContent = '⏸️';
             playText.textContent = 'Pause';
+            livePlayIcon.textContent = '⏸️';
+            livePlayText.textContent = 'Pause';
             stopBtn.style.display = 'inline-flex';
         } else {
             playIcon.textContent = '▶️';
             playText.textContent = this.currentAudio ? 'Resume' : 'Playback';
+            livePlayIcon.textContent = '▶️';
+            livePlayText.textContent = this.currentAudio ? 'Resume' : 'Play';
             if (!this.currentAudio) {
                 stopBtn.style.display = 'none';
             }
@@ -1662,7 +1698,7 @@ class SvaraScribe {
         
         this.playbackHighlightInterval = setInterval(() => {
             this.updatePlaybackHighlight();
-        }, 25); // Update every 25ms for smoother highlighting (was 50ms)
+        }, 100); // Reduced frequency to 100ms to prevent unresponsiveness
     }
 
     stopPlaybackHighlighting() {
@@ -1677,42 +1713,26 @@ class SvaraScribe {
         if (!this.currentAudio || !this.isPlayingBack) return;
         
         const currentTime = this.currentAudio.currentTime * 1000; // Convert to milliseconds
-        let cumulativeTime = 0;
         let currentNoteIndex = -1;
         
         // Find which note should be highlighted based on playback time
+        let cumulativeTime = 0;
         for (let i = 0; i < this.liveNotation.length; i++) {
             const note = this.liveNotation[i];
             const noteStart = cumulativeTime;
-            const noteEnd = cumulativeTime + note.duration;
+            const noteEnd = noteStart + Math.max(0, note.duration || 0);
             
             if (currentTime >= noteStart && currentTime < noteEnd) {
                 currentNoteIndex = i;
-                // Debug logging for timing issues
-                // if (i % 5 === 0) { // Log every 5th note to avoid spam
-                //     const cleanNoteName = note.displayNote.includes('<img') ? 
-                //         note.svara || 'Note' : note.displayNote;
-                //     console.log(`Highlighting note ${i}: ${cleanNoteName} at ${currentTime.toFixed(0)}ms (${noteStart.toFixed(0)}-${noteEnd.toFixed(0)}ms)`);
-                // }
                 break;
             }
-            cumulativeTime += note.duration;
+            cumulativeTime += Math.max(0, note.duration || 0);
         }
         
         // Clear previous highlights
         this.clearAllHighlights();
         
-        // Check if playback has exceeded total duration
-        if (this.liveNotation.length > 0) {
-            const totalDuration = this.liveNotation.reduce((sum, note) => sum + note.duration, 0);
-            if (currentTime > totalDuration) {
-                // Stop playback if we've exceeded the total duration
-                this.stopPlayback();
-                return;
-            }
-        }
-        
-        // Highlight current note in live notation
+        // Highlight current note if found
         if (currentNoteIndex >= 0) {
             this.highlightLiveNote(currentNoteIndex);
             this.highlightSynchronizedNote(currentNoteIndex);
@@ -1746,6 +1766,10 @@ class SvaraScribe {
     }
 
     clearAllHighlights() {
+        // Only clear if there are highlights to avoid unnecessary DOM queries
+        const highlighted = document.querySelector('.note-highlight, .syllable-highlight');
+        if (!highlighted) return;
+        
         // Remove all highlighting classes
         document.querySelectorAll('.note-highlight').forEach(el => {
             el.classList.remove('note-highlight');
@@ -2273,6 +2297,7 @@ class SvaraScribe {
                 octave: svaraData.octave,
                 displayNote: displayNote,
                 startTime: currentTime,
+                timestamp: currentTime, // Add actual timestamp for playback sync
                 duration: 0,
                 pitch: svaraData.pitch,
                 waveform: waveformData // Store initial waveform
@@ -2534,7 +2559,14 @@ class SvaraScribe {
         if (this.liveNotation.length > 0) {
             notation += `Live Notation:\n`;
             this.liveNotation.forEach((note, index) => {
-                var displayNote = note.displayNote;
+                // Use text notation for export, not HTML
+                var displayNote;
+                if (notationStyle === 'western') {
+                    displayNote = this.westernNotes[note.svaraIndex % 12];
+                } else {
+                    displayNote = this.languageSupport.getFormattedSvara(note.svaraIndex, language, note.octave);
+                }
+                
                 if (notationStyle === 'carnatic') {
                     displayNote = this.languageSupport.formatDuration(displayNote, note.duration);
                 }
@@ -2547,7 +2579,14 @@ class SvaraScribe {
         if (this.liveNotation.length > 0) {
             notation += `Frequency Data (Hz):\n`;
             this.liveNotation.forEach((note, index) => {
-                var displayNote = note.displayNote;
+                // Use text notation for export, not HTML
+                var displayNote;
+                if (notationStyle === 'western') {
+                    displayNote = this.westernNotes[note.svaraIndex % 12];
+                } else {
+                    displayNote = this.languageSupport.getFormattedSvara(note.svaraIndex, language, note.octave);
+                }
+                
                 var frequency = note.pitch || 'N/A';
                 var duration = Math.round(note.duration);
                 notation += `${displayNote}: ${frequency} Hz (${duration}ms)\n`;
@@ -2614,7 +2653,16 @@ class SvaraScribe {
         this.liveNotation.forEach((note, index) => {
             var frequency = note.pitch ? Math.round(note.pitch * 100) / 100 : 'N/A';
             var duration = Math.round(note.duration);
-            var displayNote = note.displayNote || 'Unknown';
+            
+            // Use text notation for export, not HTML
+            const notationStyle = document.getElementById('notationStyle').value;
+            const language = document.getElementById('language').value;
+            var displayNote;
+            if (notationStyle === 'western') {
+                displayNote = this.westernNotes[note.svaraIndex % 12];
+            } else {
+                displayNote = this.languageSupport.getFormattedSvara(note.svaraIndex, language, note.octave);
+            }
             
             frequencyData += `${currentTime}\t${frequency}\t${displayNote}\t${duration}\n`;
             currentTime += duration;

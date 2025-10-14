@@ -360,15 +360,25 @@
             display: flex;
             justify-content: center;
             margin: 20px 0;
+            position: relative;
+        }
+
+        .dial-notes-background {
+            position: absolute;
+            width: 240px;
+            height: 240px;
+            border: 3px solid #6c757d;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+            z-index: 1;
+            pointer-events: none; /* No interaction with needle */
         }
 
         .pitch-dial {
             position: relative;
             width: 240px;  /* 20% bigger: 200px * 1.2 */
             height: 240px; /* 20% bigger: 200px * 1.2 */
-            border: 3px solid #6c757d;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+            z-index: 2;
         }
 
         .dial-notes {
@@ -391,12 +401,12 @@
             top: 50%;
             left: 50%;
             width: 2px;
-            height: 65px; /* Further shortened from 75px to 65px */
+            height: 90px; /* Increased from 65px */
             background: #dc3545;
             transform-origin: bottom center;
             transform: translate(-50%, -100%) rotate(0deg);
             transition: transform 0.1s ease;
-            z-index: 5; /* Lower than notes */
+            z-index: 3; /* Above background but below center */
         }
 
         .dial-needle::before {
@@ -420,23 +430,40 @@
             background: white;
             border: 2px solid #6c757d;
             border-radius: 50%;
-            width: 96px;  /* 20% bigger: 80px * 1.2 */
-            height: 96px; /* 20% bigger: 80px * 1.2 */
+            width: 110px;  /* Increased size to accommodate text */
+            height: 110px; /* Increased size to accommodate text */
             display: flex;
             flex-direction: column;
             justify-content: center;
+            align-items: center;
             z-index: 5;
+            padding: 8px;
         }
 
         .dial-note {
-            font-size: 18px;
+            font-size: 16px;  /* Reduced from 18px */
             font-weight: 700;
             color: #dc3545;
+            line-height: 1;
+            margin-bottom: 2px;
+        }
+
+        .dial-delta {
+            font-size: 8px;
+            color: #6c757d;
+            line-height: 1;
+            margin-bottom: 1px;
+            min-height: 18px; /* Increased to accommodate Hz display */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
 
         .dial-freq {
-            font-size: 12px;
+            font-size: 9px;  /* Slightly smaller */
             color: #6c757d;
+            line-height: 1;
+            margin-top: 1px;
         }
 
         .svara-image {
@@ -996,12 +1023,14 @@
         <div class="visualization">
             <h3>🎵 Real-time Pitch</h3>
             <div class="pitch-dial-container">
+                <div class="dial-notes-background"></div>
                 <div class="pitch-dial">
-                    <div class="dial-notes"></div>
                     <div class="dial-needle"></div>
                     <div class="dial-center">
                         <div id="dialNote" class="dial-note">-</div>
-                        <div id="dialFreq" class="dial-freq">- Hz</div>
+                        <div id="dialDelta" class="dial-delta">
+                            <div id="dialFreq" class="dial-freq">- Hz</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1025,6 +1054,12 @@
                     </button>
                 </div>
             </h3>
+            <div class="live-notation-controls" style="margin-bottom: 10px;">
+                <button id="livePlayback" class="btn btn-small" disabled>
+                    <span class="btn-icon">▶️</span>
+                    <span class="btn-text">Play</span>
+                </button>
+            </div>
             <div id="liveNotation"></div>
         </div>
 
