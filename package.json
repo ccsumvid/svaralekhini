@@ -1,6 +1,6 @@
 {
   "name": "svarascribe",
-  "version": "0.3.WORLD",
+  "version": "0.4.ENHANCED",
   "description": "Carnatic Music Analysis & Notation",
   "main": "app.js",
   "scripts": {
