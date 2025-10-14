@@ -19,10 +19,10 @@ const teluguSvaras = {
 };
 
 // Generate SVG for a svara with optional octave indicator
-function generateSvaraSVG(svara, octave = 0) {
+function generateSvaraSVG(svara, octave = 0, svaraKey = '') {
     const width = 40;
     const height = 40;
-    const fontSize = 24;
+    const fontSize = 34;
     
     let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
         <text x="20" y="25" text-anchor="middle" font-family="Noto Sans Telugu, Arial" font-size="${fontSize}" fill="var(--text-primary, #333)">${svara}</text>`;
@@ -32,8 +32,16 @@ function generateSvaraSVG(svara, octave = 0) {
         // Dot below
         svg += `<circle cx="20" cy="35" r="2" fill="var(--text-primary, #333)"/>`;
     } else if (octave > 0) {
-        // Dot above  
-        svg += `<circle cx="20" cy="8" r="2" fill="var(--text-primary, #333)"/>`;
+        // Dot above - special positioning for different Telugu letter heights
+        let dotY = 6; // Default position
+        
+        if (svaraKey.startsWith('ni') || svaraKey.startsWith('ma') || svaraKey === 'sa') {
+            dotY = 0; // Highest position for ni, ma, sa (6px higher than default)
+        } else if (svaraKey.startsWith('ri') || svaraKey === 'pa') {
+            dotY = 3; // High position for ri, pa (3px higher than default)
+        }
+        
+        svg += `<circle cx="20" cy="${dotY}" r="2" fill="var(--text-primary, #333)"/>`;
     }
     
     svg += `</svg>`;
@@ -49,15 +57,15 @@ if (!fs.existsSync(imagesDir)) {
 // Generate all svara images
 Object.entries(teluguSvaras).forEach(([key, svara]) => {
     // Normal octave
-    const normalSVG = generateSvaraSVG(svara, 0);
+    const normalSVG = generateSvaraSVG(svara, 0, key);
     fs.writeFileSync(path.join(imagesDir, `${key}.svg`), normalSVG);
     
     // Lower octave
-    const lowerSVG = generateSvaraSVG(svara, -1);
+    const lowerSVG = generateSvaraSVG(svara, -1, key);
     fs.writeFileSync(path.join(imagesDir, `${key}_lower.svg`), lowerSVG);
     
     // Upper octave
-    const upperSVG = generateSvaraSVG(svara, 1);
+    const upperSVG = generateSvaraSVG(svara, 1, key);
     fs.writeFileSync(path.join(imagesDir, `${key}_upper.svg`), upperSVG);
 });
 

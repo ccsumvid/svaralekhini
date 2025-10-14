@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pitch Practice - Svara Lekhini</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        .practice-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            text-align: center;
+            color: #333;
+            max-width: 500px;
+        }
+
+        h1 {
+            margin-bottom: 30px;
+            color: #2c3e50;
+        }
+
+        .pitch-dial-container {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+            position: relative;
+        }
+
+        .dial-notes-background {
+            position: absolute;
+            width: 240px;
+            height: 240px;
+            border: 3px solid #6c757d;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .pitch-dial {
+            position: relative;
+            width: 240px;
+            height: 240px;
+            z-index: 2;
+        }
+
+        .dial-needle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2px;
+            height: 90px;
+            background: #dc3545;
+            transform-origin: bottom center;
+            transform: translate(-50%, -100%) rotate(0deg);
+            transition: transform 0.1s ease;
+            z-index: 3;
+        }
+
+        .dial-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            background: white;
+            border: 2px solid #6c757d;
+            border-radius: 50%;
+            width: 110px;
+            height: 110px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 5;
+            padding: 8px;
+        }
+
+        .dial-note {
+            font-size: 16px;
+            font-weight: 700;
+            color: #dc3545;
+            line-height: 1;
+            margin-bottom: 2px;
+        }
+
+        .dial-delta {
+            font-size: 8px;
+            color: #6c757d;
+            line-height: 1;
+            margin-bottom: 1px;
+            min-height: 18px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .dial-freq {
+            font-size: 9px;
+            color: #6c757d;
+            line-height: 1;
+            margin-top: 1px;
+        }
+
+        .controls {
+            margin: 30px 0;
+        }
+
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            margin: 0 10px;
+            transition: background 0.2s;
+        }
+
+        .btn:hover {
+            background: #0056b3;
+        }
+
+        .btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .settings {
+            margin-top: 20px;
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .setting-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+
+        select {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            font-size: 12px;
+        }
+
+        label {
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="practice-container">
+        <h1>🎵 Pitch Practice</h1>
+        
+        <div class="pitch-dial-container">
+            <div class="dial-notes-background"></div>
+            <div class="pitch-dial">
+                <div class="dial-needle"></div>
+                <div class="dial-center">
+                    <div id="dialNote" class="dial-note">-</div>
+                    <div id="dialDelta" class="dial-delta">
+                        <div id="dialFreq" class="dial-freq">- Hz</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="startPractice" class="btn">Start Practice</button>
+            <button id="toggleDrone" class="btn">Play Drone</button>
+        </div>
+
+        <div class="settings">
+            <div class="setting-group">
+                <label>Base Pitch</label>
+                <select id="basePitch">
+                    <option value="103.83">C# (103.83 Hz)</option>
+                    <option value="110">A (110 Hz)</option>
+                    <option value="123.47">B (123.47 Hz)</option>
+                    <option value="130.81">C (130.81 Hz)</option>
+                    <option value="146.83">D (146.83 Hz)</option>
+                    <option value="164.81">E (164.81 Hz)</option>
+                    <option value="174.61">F (174.61 Hz)</option>
+                    <option value="196">G (196 Hz)</option>
+                </select>
+            </div>
+            <div class="setting-group">
+                <label>Notation</label>
+                <select id="notationStyle">
+                    <option value="carnatic">Carnatic</option>
+                    <option value="western">Western</option>
+                </select>
+            </div>
+            <div class="setting-group">
+                <label>Language</label>
+                <select id="language">
+                    <option value="tamil">Tamil</option>
+                    <option value="telugu">Telugu</option>
+                    <option value="kannada">Kannada</option>
+                    <option value="hindi">Hindi</option>
+                    <option value="sanskrit">Sanskrit</option>
+                    <option value="english">English</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <script src="languages.js"></script>
+    <script src="pitch.js"></script>
+    <script>
+        class PitchPractice {
+            constructor() {
+                this.audioContext = null;
+                this.analyser = null;
+                this.microphone = null;
+                this.isActive = false;
+                this.droneOscillator = null;
+                this.droneGain = null;
+                this.languageSupport = new LanguageSupport();
+                this.pitchDetector = new PitchDetector();
+                this.westernNotes = this.pitchDetector.westernNotes;
+                this.lastNotationStyle = null;
+                
+                this.initializeEventListeners();
+                this.setDefaultLanguage();
+                this.updateTitle();
+                this.initializeDial();
+            }
+
+            setDefaultLanguage() {
+                const browserLang = navigator.language || navigator.userLanguage;
+                const langCode = browserLang.toLowerCase().split('-')[0];
+                
+                // Map browser language codes to our supported languages
+                const langMap = {
+                    'ta': 'tamil',
+                    'te': 'telugu', 
+                    'kn': 'kannada',
+                    'hi': 'hindi',
+                    'sa': 'sanskrit',
+                    'en': 'english'
+                };
+                
+                const defaultLang = langMap[langCode] || 'english';
+                document.getElementById('language').value = defaultLang;
+            }
+
+            initializeEventListeners() {
+                document.getElementById('startPractice').addEventListener('click', () => this.togglePractice());
+                document.getElementById('toggleDrone').addEventListener('click', () => this.toggleDrone());
+                document.getElementById('notationStyle').addEventListener('change', () => this.initializeDial());
+                document.getElementById('language').addEventListener('change', () => {
+                    this.updateTitle();
+                    this.initializeDial();
+                });
+            }
+
+            updateTitle() {
+                const language = document.getElementById('language').value;
+                const labels = this.getLabels(language);
+                
+                // Update title
+                document.querySelector('h1').textContent = `🎵 ${labels.title}`;
+                
+                // Update all labels
+                const labelElements = document.querySelectorAll('.setting-group label');
+                labelElements[0].textContent = labels.basePitch;
+                labelElements[1].textContent = labels.notation;
+                labelElements[2].textContent = labels.language;
+                
+                // Update notation dropdown options
+                this.updateNotationOptions(language);
+                
+                // Update button texts
+                this.updateButtonText();
+                
+                const droneBtn = document.getElementById('toggleDrone');
+                droneBtn.textContent = this.droneOscillator ? labels.stopDrone : labels.playDrone;
+            }
+
+            updateNotationOptions(language) {
+                const notationSelect = document.getElementById('notationStyle');
+                const currentValue = notationSelect.value;
+                
+                const notationOptions = {
+                    english: {
+                        carnatic: 'Carnatic',
+                        western: 'Western'
+                    },
+                    tamil: {
+                        carnatic: 'கர்நாடக',
+                        western: 'மேற்கத்திய'
+                    },
+                    telugu: {
+                        carnatic: 'కర్ణాటక',
+                        western: 'పాశ్చాత్య'
+                    },
+                    kannada: {
+                        carnatic: 'ಕರ್ನಾಟಕ',
+                        western: 'ಪಾಶ್ಚಾತ್ಯ'
+                    },
+                    hindi: {
+                        carnatic: 'कर्नाटक',
+                        western: 'पश्चिमी'
+                    },
+                    sanskrit: {
+                        carnatic: 'कर्णाटकम्',
+                        western: 'पाश्चात्यम्'
+                    }
+                };
+                
+                const options = notationOptions[language] || notationOptions.english;
+                
+                notationSelect.innerHTML = `
+                    <option value="carnatic">${options.carnatic}</option>
+                    <option value="western">${options.western}</option>
+                `;
+                
+                // Restore previous selection
+                notationSelect.value = currentValue;
+            }
+
+            getLabels(language) {
+                const labels = {
+                    english: {
+                        title: 'Pitch Practice',
+                        basePitch: 'Base Pitch',
+                        notation: 'Notation',
+                        language: 'Language',
+                        startPractice: 'Start Practice',
+                        stop: 'Stop',
+                        playDrone: 'Play Drone',
+                        stopDrone: 'Stop Drone'
+                    },
+                    tamil: {
+                        title: 'ஸ்வர சாதனை',
+                        basePitch: 'ஸ்ருதி',
+                        notation: 'ஸ்வர லிபி',
+                        language: 'மொழி',
+                        startPractice: 'சாதனை தொடங்கு',
+                        stop: 'நிறுத்து',
+                        playDrone: 'ஸ்ருதி ஒலி',
+                        stopDrone: 'ஸ்ருதி நிறுத்து'
+                    },
+                    telugu: {
+                        title: 'స్వరసాధన',
+                        basePitch: 'శ్రుతి',
+                        notation: 'స్వరలిపి',
+                        language: 'భాష',
+                        startPractice: 'సాధన ప్రారంభించు',
+                        stop: 'ఆపు',
+                        playDrone: 'శ్రుతి వినిపించు',
+                        stopDrone: 'శ్రుతి ఆపు'
+                    },
+                    kannada: {
+                        title: 'ಸ್ವರ ಸಾಧನೆ',
+                        basePitch: 'ಶ್ರುತಿ',
+                        notation: 'ಸ್ವರಲಿಪಿ',
+                        language: 'ಭಾಷೆ',
+                        startPractice: 'ಸಾಧನೆ ಪ್ರಾರಂಭಿಸಿ',
+                        stop: 'ನಿಲ್ಲಿಸಿ',
+                        playDrone: 'ಶ್ರುತಿ ಬಾರಿಸಿ',
+                        stopDrone: 'ಶ್ರುತಿ ನಿಲ್ಲಿಸಿ'
+                    },
+                    hindi: {
+                        title: 'स्वर साधना',
+                        basePitch: 'श्रुति',
+                        notation: 'स्वरलिपि',
+                        language: 'भाषा',
+                        startPractice: 'साधना शुरू करें',
+                        stop: 'रोकें',
+                        playDrone: 'श्रुति बजाएं',
+                        stopDrone: 'श्रुति रोकें'
+                    },
+                    sanskrit: {
+                        title: 'स्वरसाधनम्',
+                        basePitch: 'श्रुतिः',
+                        notation: 'स्वरलिपिः',
+                        language: 'भाषा',
+                        startPractice: 'साधनं आरभत',
+                        stop: 'स्थगयत',
+                        playDrone: 'श्रुतिं वादयत',
+                        stopDrone: 'श्रुतिं स्थगयत'
+                    }
+                };
+                
+                return labels[language] || labels.english;
+            }
+
+            togglePractice() {
+                if (this.isActive) {
+                    this.stopPractice();
+                } else {
+                    this.startPractice();
+                }
+            }
+
+            async startPractice() {
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    
+                    this.microphone = this.audioContext.createMediaStreamSource(stream);
+                    this.analyser = this.audioContext.createAnalyser();
+                    this.analyser.fftSize = 4096;
+                    this.microphone.connect(this.analyser);
+                    
+                    this.isActive = true;
+                    this.updateButtonText();
+                    
+                    this.detectPitch();
+                } catch (error) {
+                    alert('Microphone access required for pitch practice');
+                }
+            }
+
+            stopPractice() {
+                this.isActive = false;
+                if (this.microphone) {
+                    this.microphone.disconnect();
+                    this.microphone = null;
+                }
+                if (this.audioContext) {
+                    this.audioContext.close();
+                    this.audioContext = null;
+                }
+                
+                this.updateButtonText();
+                
+                // Reset display
+                document.getElementById('dialNote').textContent = '-';
+                document.getElementById('dialDelta').innerHTML = '<div id="dialFreq" class="dial-freq">- Hz</div>';
+            }
+
+            updateButtonText() {
+                const language = document.getElementById('language').value;
+                const labels = this.getLabels(language);
+                const startBtn = document.getElementById('startPractice');
+                
+                startBtn.textContent = this.isActive ? labels.stop : labels.startPractice;
+            }
+
+            detectPitch() {
+                if (!this.isActive || !this.analyser) return;
+                
+                const bufferLength = this.analyser.frequencyBinCount;
+                const dataArray = new Float32Array(bufferLength);
+                this.analyser.getFloatFrequencyData(dataArray);
+                
+                const pitch = this.pitchDetector.autoCorrelate(dataArray, this.audioContext.sampleRate);
+                if (pitch > 0) {
+                    const basePitch = parseFloat(document.getElementById('basePitch').value);
+                    const svaraData = this.pitchDetector.frequencyToSvara(pitch, basePitch);
+                    this.updateDial(pitch, svaraData);
+                }
+                
+                setTimeout(() => this.detectPitch(), 50);
+            }
+
+            }
+
+            }
+
+            updateDial(pitch, svaraData) {
+                const dialNote = document.getElementById('dialNote');
+                const dialDelta = document.getElementById('dialDelta');
+                const needle = document.querySelector('.dial-needle');
+                
+                if (!dialNote || !dialDelta || !needle) return;
+                
+                const notationStyle = document.getElementById('notationStyle').value;
+                const language = document.getElementById('language').value;
+                
+                // Calculate needle angle
+                const noteIndex = svaraData.index % 12;
+                const baseAngle = noteIndex * 30;
+                
+                const expectedFreq = this.getExpectedFrequency(svaraData.index, svaraData.octave);
+                const cents = 1200 * Math.log2(pitch / expectedFreq);
+                const deviationAngle = cents * 0.25;
+                const needleAngle = baseAngle + deviationAngle;
+                
+                needle.style.transform = `translate(-50%, -100%) rotate(${needleAngle}deg)`;
+                
+                // Update display
+                let displayNote;
+                if (notationStyle === 'western') {
+                    const octaveNumber = Math.floor(Math.log2(pitch / 261.63)) + 4;
+                    displayNote = this.westernNotes[svaraData.index % 12] + octaveNumber;
+                } else {
+                    displayNote = this.languageSupport.getFormattedSvara(svaraData.index, language, svaraData.octave);
+                }
+                
+                dialNote.textContent = displayNote;
+                
+                // Display deviation
+                const deviation = Math.round(cents);
+                if (Math.abs(cents) < 50) {
+                    const deviationText = deviation > 0 ? `+${deviation}¢` : `${deviation}¢`;
+                    dialDelta.innerHTML = `<div style="color: ${Math.abs(deviation) < 10 ? '#28a745' : '#dc3545'}">${deviationText}</div><div id="dialFreq" class="dial-freq">${pitch.toFixed(1)} Hz</div>`;
+                } else {
+                    dialDelta.innerHTML = `<div id="dialFreq" class="dial-freq">${pitch.toFixed(1)} Hz</div>`;
+                }
+                
+                // Update dial notes if notation changed
+                if (notationStyle !== this.lastNotationStyle) {
+                    this.initializeDial();
+                    this.lastNotationStyle = notationStyle;
+                }
+            }
+
+            getExpectedFrequency(noteIndex, octave) {
+                const basePitch = parseFloat(document.getElementById('basePitch').value);
+                return this.pitchDetector.getExpectedFrequency(noteIndex, octave, basePitch);
+            }
+
+            initializeDial() {
+                const dialNotes = document.querySelector('.dial-notes-background');
+                if (!dialNotes) return;
+                
+                dialNotes.innerHTML = '';
+                
+                const notationStyle = document.getElementById('notationStyle').value;
+                const language = document.getElementById('language').value;
+                
+                const notes = notationStyle === 'western' ? this.westernNotes : 
+                    Array.from({length: 12}, (_, i) => this.languageSupport.getFormattedSvara(i, language, 0));
+                
+                notes.forEach((note, index) => {
+                    const angle = index * 30 - 90;
+                    const radius = 90;
+                    const x = 120 + radius * Math.cos(angle * Math.PI / 180);
+                    const y = 120 + radius * Math.sin(angle * Math.PI / 180);
+                    
+                    const noteElement = document.createElement('div');
+                    noteElement.style.position = 'absolute';
+                    noteElement.style.left = x + 'px';
+                    noteElement.style.top = y + 'px';
+                    noteElement.style.transform = 'translate(-50%, -50%)';
+                    noteElement.style.fontSize = '14px';
+                    noteElement.style.fontWeight = '600';
+                    noteElement.style.color = '#495057';
+                    noteElement.textContent = note;
+                    
+                    dialNotes.appendChild(noteElement);
+                });
+            }
+
+            toggleDrone() {
+                if (this.droneOscillator) {
+                    this.droneOscillator.stop();
+                    this.droneOscillator = null;
+                    this.droneGain = null;
+                } else {
+                    if (!this.audioContext) {
+                        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    }
+                    
+                    const basePitch = parseFloat(document.getElementById('basePitch').value);
+                    this.droneOscillator = this.audioContext.createOscillator();
+                    this.droneGain = this.audioContext.createGain();
+                    
+                    this.droneOscillator.frequency.setValueAtTime(basePitch, this.audioContext.currentTime);
+                    this.droneOscillator.type = 'sine';
+                    this.droneGain.gain.setValueAtTime(0.1, this.audioContext.currentTime);
+                    
+                    this.droneOscillator.connect(this.droneGain);
+                    this.droneGain.connect(this.audioContext.destination);
+                    this.droneOscillator.start();
+                }
+                
+                // Update button text based on current state
+                const language = document.getElementById('language').value;
+                const labels = this.getLabels(language);
+                const droneBtn = document.getElementById('toggleDrone');
+                droneBtn.textContent = this.droneOscillator ? labels.stopDrone : labels.playDrone;
+            }
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new PitchPractice();
+        });
+    </script>
+</body>
+</html>

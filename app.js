@@ -337,7 +337,10 @@ class SvaraScribe {
         document.getElementById('livePlayback').addEventListener('click', () => this.togglePlayback());
         document.getElementById('stopPlayback').addEventListener('click', () => this.stopPlayback());
         document.getElementById('toggleDrone').addEventListener('click', () => this.toggleDrone());
-        document.getElementById('exportAudio').addEventListener('click', () => this.exportAudio());
+        const exportAudioBtn = document.getElementById('exportAudio');
+        if (exportAudioBtn) {
+            exportAudioBtn.addEventListener('click', () => this.exportAudio());
+        }
         document.getElementById('exportNotation').addEventListener('click', () => this.exportNotation());
         document.getElementById('exportFrequency').addEventListener('click', () => this.exportFrequency());
         document.getElementById('lyricsInput').addEventListener('input', () => {
@@ -360,7 +363,10 @@ class SvaraScribe {
             this.saveSessionOptions();
             this.initializeDial(); // Reinitialize dial with new language
         });
-        document.getElementById('minNoteLength').addEventListener('change', () => this.saveSessionOptions());
+        document.getElementById('minNoteLength').addEventListener('change', () => {
+            this.saveSessionOptions();
+            this.filterNotesByLength();
+        });
         
         // Help modal
         document.getElementById('helpBtn').addEventListener('click', () => this.showHelp());
@@ -535,6 +541,21 @@ class SvaraScribe {
         document.getElementById('liveNotation').innerHTML = '';
     }
 
+    filterNotesByLength() {
+        const minNoteDuration = parseInt(document.getElementById('minNoteLength').value) || 50;
+        
+        // Filter live notation
+        this.liveNotation = this.liveNotation.filter(note => note.duration >= minNoteDuration);
+        
+        // Update display
+        this.displayLiveNotation();
+        
+        // Update synchronized notation if it exists
+        if (this.liveNotation.length > 0) {
+            this.displayAnalysis(this.liveNotation);
+        }
+    }
+
     showHelp() {
         document.getElementById('versionDisplay').textContent = 'v0.3.WORLD';
         document.getElementById('helpModal').style.display = 'block';
@@ -687,14 +708,19 @@ class SvaraScribe {
         
         document.getElementById('startRecord').disabled = false;
         document.getElementById('stopRecord').disabled = true;
-        document.getElementById('playback').disabled = false;
-        document.getElementById('livePlayback').disabled = false;
-        document.getElementById('exportAudio').disabled = false;
+        const playbackBtn = document.getElementById('playback');
+        if (playbackBtn) playbackBtn.disabled = false;
+        const livePlaybackBtn = document.getElementById('livePlayback');
+        if (livePlaybackBtn) livePlaybackBtn.disabled = false;
+        const exportAudioBtn = document.getElementById('exportAudio');
+        if (exportAudioBtn) {
+            exportAudioBtn.disabled = false;
+        }
         
         this.stopPitchDetection();
         
-        // Automatically analyze and display synchronized notation
-        this.displaySynchronizedAnalysis();
+        // Automatically analyze and display synchronized notation asynchronously
+        setTimeout(() => this.displaySynchronizedAnalysis(), 0);
     }
 
     displaySynchronizedAnalysis() {
@@ -2419,6 +2445,9 @@ class SvaraScribe {
         }
         
         liveNotationDiv.innerHTML = html;
+        
+        // Auto-scroll to bottom to show latest notation
+        liveNotationDiv.scrollTop = liveNotationDiv.scrollHeight;
         
         // Add tooltip functionality
         this.addTooltipListeners(liveNotationDiv);
