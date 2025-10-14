@@ -166,12 +166,13 @@ class LanguageSupport {
             formattedName = baseName + (svaraIndex === 10 ? '₁' : '₂');
         }
         
-        // Add octave indicators - use alternative notation for Telugu
+        // Add octave indicators
         if (language === 'telugu') {
+            // Use Telugu-specific notation for octaves
             if (octave < 0) {
-                formattedName = formattedName + '̥'; // Use ring below instead of dot below
+                formattedName = formattedName + '₋'; // Subscript minus for lower octave
             } else if (octave > 0) {
-                formattedName = formattedName + '̊'; // Use ring above instead of dot above
+                formattedName = formattedName + '⁺'; // Superscript plus for higher octave
             }
         } else {
             // For other languages, use standard combining diacritical marks
@@ -183,6 +184,22 @@ class LanguageSupport {
         }
         
         return formattedName;
+    }
+
+    // Get svara as image HTML instead of text (for problematic languages)
+    getFormattedSvaraImage(svaraIndex, language, octave = 0) {
+        const svaraNames = ['sa', 'ri1', 'ri2', 'ga1', 'ga2', 'ma1', 'ma2', 'pa', 'dha1', 'dha2', 'ni1', 'ni2'];
+        const svaraName = svaraNames[svaraIndex];
+        
+        let imageName = svaraName;
+        if (octave < 0) {
+            imageName += '_lower';
+        } else if (octave > 0) {
+            imageName += '_upper';
+        }
+        
+        const imagePath = `images/svaras/${language}/${imageName}.svg`;
+        return `<img src="${imagePath}" alt="${svaraName}" class="svara-image" style="width: 20px; height: 20px; vertical-align: middle;">`;
     }
 
     // Format duration with traditional Carnatic notation (commas and semicolons)

@@ -9,8 +9,12 @@ class SvaraScribe {
         this.droneOscillator = null;
         this.droneGain = null;
         this.isDronePlaying = false;
-        this.canvas = document.getElementById('canvas');
-        this.ctx = this.canvas.getContext('2d');
+        this.tanpuraOscillators = [];
+        this.tanpuraGains = [];
+        this.isPlayingBack = false;
+        this.currentAudio = null;
+        this.playbackHighlightInterval = null;
+        this.isDraggingSlider = false;
         this.pitchData = [];
         this.timeData = [];
         this.syllables = [];
@@ -22,6 +26,7 @@ class SvaraScribe {
         // Pitch stabilization
         this.recentPitches = [];
         this.stablePitch = null;
+        this.lastNotationStyle = null;
         
         // Syllable detection data
         this.audioFeatures = [];
@@ -54,7 +59,53 @@ class SvaraScribe {
         this.carnaticNotes = ['Sa', 'Ri1', 'Ri2', 'Ga1', 'Ga2', 'Ma1', 'Ma2', 'Pa', 'Dha1', 'Dha2', 'Ni1', 'Ni2'];
         
         this.initializeEventListeners();
-        this.setupCanvas();
+        this.loadSessionOptions();
+    }
+
+    saveSessionOptions() {
+        try {
+            const options = {
+                notationStyle: document.getElementById('notationStyle').value,
+                basePitch: document.getElementById('basePitch').value,
+                language: document.getElementById('language').value,
+                lyrics: document.getElementById('lyricsInput').value,
+                minNoteLength: document.getElementById('minNoteLength').value
+            };
+            localStorage.setItem('svaraLekhiniOptions', JSON.stringify(options));
+        } catch (error) {
+            console.error('Error saving session options:', error);
+        }
+    }
+
+    loadSessionOptions() {
+        try {
+            const saved = localStorage.getItem('svaraLekhiniOptions');
+            if (saved) {
+                const options = JSON.parse(saved);
+                
+                if (options.notationStyle) {
+                    document.getElementById('notationStyle').value = options.notationStyle;
+                }
+                if (options.basePitch) {
+                    document.getElementById('basePitch').value = options.basePitch;
+                }
+                if (options.language) {
+                    document.getElementById('language').value = options.language;
+                }
+                if (options.lyrics) {
+                    document.getElementById('lyricsInput').value = options.lyrics;
+                    this.processLyrics(); // Process loaded lyrics
+                }
+                if (options.minNoteLength) {
+                    document.getElementById('minNoteLength').value = options.minNoteLength;
+                }
+                
+                // Update UI based on loaded options
+                this.handleNotationStyleChange();
+            }
+        } catch (error) {
+            console.error('Error loading session options:', error);
+        }
     }
 
     async initializeAudio() {
@@ -63,7 +114,7 @@ class SvaraScribe {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             
             this.analyser = this.audioContext.createAnalyser();
-            this.analyser.fftSize = 2048;
+            this.analyser.fftSize = 4096; // Increased for Aubio.js accuracy
             
             const source = this.audioContext.createMediaStreamSource(stream);
             source.connect(this.analyser);
@@ -82,17 +133,224 @@ class SvaraScribe {
         }
     }
 
+    initializeDial() {
+        const dialNotes = document.querySelector('.dial-notes');
+        if (!dialNotes) return;
+        
+        // Clear existing notes
+        dialNotes.innerHTML = '';
+        
+        const notationStyle = document.getElementById('notationStyle')?.value || 'western';
+        const language = document.getElementById('language')?.value || 'english';
+        
+        // Get appropriate note names
+        let notes;
+        if (notationStyle === 'western') {
+            notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+        } else {
+            notes = [];
+            for (let i = 0; i < 12; i++) {
+                const svara = this.languageSupport.getFormattedSvara(i, language, 0);
+                // Remove octave indicators for dial display
+                notes.push(svara.replace(/[₀₁₂₃₄₅₆₇₈₉̣̇₋⁺]/g, ''));
+            }
+        }
+        
+        notes.forEach((note, index) => {
+            const angle = (index * 30) - 90; // 30 degrees per note, start at top
+            const radian = (angle * Math.PI) / 180;
+            const x = 120 + 90 * Math.cos(radian); // Adjusted for 240px dial (120 center, 90 radius)
+            const y = 120 + 90 * Math.sin(radian);
+            
+            const noteElement = document.createElement('div');
+            noteElement.textContent = note;
+            noteElement.style.position = 'absolute';
+            noteElement.style.left = x + 'px';
+            noteElement.style.top = y + 'px';
+            noteElement.style.transform = 'translate(-50%, -50%)';
+            noteElement.style.fontSize = '14px';
+            noteElement.style.fontWeight = '600';
+            noteElement.style.color = '#495057';
+            noteElement.className = 'dial-note';
+            noteElement.setAttribute('data-index', index);
+            dialNotes.appendChild(noteElement);
+        });
+    }
+
+    updateDial(pitch, svaraData) {
+        const dialNote = document.getElementById('dialNote');
+        const dialFreq = document.getElementById('dialFreq');
+        const needle = document.querySelector('.dial-needle');
+        
+        // Check if dial elements exist
+        if (!dialNote || !dialFreq || !needle) return;
+        
+        const notationStyle = document.getElementById('notationStyle').value;
+        const language = document.getElementById('language').value;
+        
+        // Calculate needle angle based on pitch within octave
+        const noteIndex = svaraData.index % 12;
+        const baseAngle = noteIndex * 30; // 30 degrees per semitone
+        
+        // Fine-tune angle based on pitch deviation
+        const expectedFreq = this.getExpectedFrequency(svaraData.index, svaraData.octave);
+        const cents = 1200 * Math.log2(pitch / expectedFreq);
+        const deviationAngle = cents * 0.25; // 0.25 degrees per cent
+        
+        const needleAngle = baseAngle + deviationAngle;
+        
+        // Update needle rotation
+        needle.style.transform = `translate(-50%, -100%) rotate(${needleAngle}deg)`;
+        
+        // Update center display
+        let displayNote;
+        if (notationStyle === 'western') {
+            const octaveNumber = Math.floor(Math.log2(pitch / 261.63)) + 4;
+            displayNote = this.westernNotes[svaraData.index % 12] + octaveNumber;
+        } else {
+            displayNote = this.languageSupport.getFormattedSvara(svaraData.index, language, svaraData.octave);
+        }
+        
+        dialNote.textContent = displayNote;
+        dialFreq.textContent = pitch.toFixed(1) + ' Hz';
+        
+        // Update deviation display on dial notes
+        this.updateDialDeviations(pitch, svaraData, notationStyle, language);
+        
+        // Update dial notes based on notation style
+        if (notationStyle !== this.lastNotationStyle) {
+            this.updateDialNotes(notationStyle, language);
+            this.lastNotationStyle = notationStyle;
+        }
+    }
+
+    updateDialDeviations(pitch, svaraData, notationStyle, language) {
+        const dialNotes = document.querySelectorAll('.dial-note');
+        const basePitch = parseFloat(document.getElementById('basePitch').value);
+        
+        dialNotes.forEach((noteElement, index) => {
+            // Calculate expected frequency for this note
+            const expectedFreq = this.getExpectedFrequency(index, svaraData.octave);
+            const cents = 1200 * Math.log2(pitch / expectedFreq);
+            const deviation = Math.round(cents);
+            
+            // Clear previous deviation display
+            const existingDeviation = noteElement.querySelector('.deviation');
+            if (existingDeviation) {
+                existingDeviation.remove();
+            }
+            
+            // Show deviation only for the current note (within 50 cents)
+            if (Math.abs(cents) < 50 && index === svaraData.index) {
+                const deviationElement = document.createElement('div');
+                deviationElement.className = 'deviation';
+                deviationElement.textContent = deviation > 0 ? `+${deviation}` : `${deviation}`;
+                deviationElement.style.fontSize = '10px';
+                deviationElement.style.color = Math.abs(deviation) < 10 ? '#28a745' : '#dc3545';
+                deviationElement.style.marginTop = '2px';
+                noteElement.appendChild(deviationElement);
+            }
+        });
+    }
+
+    updateDialNotes(notationStyle, language) {
+        // Reinitialize the entire dial with new notation
+        this.initializeDial();
+    }
+
+    autoCorrelate(buffer, sampleRate) {
+        // 1. Find the signal strength (RMS = root mean square)
+        let SIZE = buffer.length;
+        let sumOfSquares = 0;
+        for (let i = 0; i < SIZE; i++) {
+            let val = buffer[i];
+            sumOfSquares += val * val;
+        }
+        let rms = Math.sqrt(sumOfSquares / SIZE);
+        if (rms < 0.01) // too quiet, ignore
+            return -1;
+
+        // 2. Trim leading and trailing silence
+        let r1 = 0, r2 = SIZE - 1;
+        const threshold = 0.2;
+        for (let i = 0; i < SIZE / 2; i++) {
+            if (Math.abs(buffer[i]) < threshold) { r1 = i; break; }
+        }
+        for (let i = 1; i < SIZE / 2; i++) {
+            if (Math.abs(buffer[SIZE - i]) < threshold) { r2 = SIZE - i; break; }
+        }
+
+        buffer = buffer.slice(r1, r2);
+        SIZE = buffer.length;
+
+        // 3. Compute autocorrelation for each lag (offset)
+        const c = new Array(SIZE).fill(0);
+        for (let lag = 0; lag < SIZE; lag++) {
+            for (let i = 0; i < SIZE - lag; i++) {
+                c[lag] = c[lag] + buffer[i] * buffer[i + lag];
+            }
+        }
+
+        // 4. Find the first dip then the next peak
+        let d = 0;
+        while (c[d] > c[d + 1]) d++;
+        let maxval = -1, maxpos = -1;
+        for (let i = d; i < SIZE; i++) {
+            if (c[i] > maxval) {
+                maxval = c[i];
+                maxpos = i;
+            }
+        }
+
+        let T0 = maxpos;
+
+        // 5. Optional interpolation for better precision
+        const x1 = c[T0 - 1], x2 = c[T0], x3 = c[T0 + 1];
+        const a = (x1 + x3 - 2 * x2) / 2;
+        const b = (x3 - x1) / 2;
+        if (a) T0 = T0 - b / (2 * a);
+
+        // 6. Convert lag (T0) to frequency
+        const freq = sampleRate / T0;
+        return freq;
+    }
+
+    getExpectedFrequency(svaraIndex, octave) {
+        const basePitch = parseFloat(document.getElementById('basePitch').value);
+        const ratios = [1.0, 16/15, 9/8, 6/5, 5/4, 4/3, 45/32, 3/2, 8/5, 5/3, 16/9, 15/8];
+        return basePitch * ratios[svaraIndex] * Math.pow(2, octave);
+    }
+
     initializeEventListeners() {
         document.getElementById('startRecord').addEventListener('click', () => this.startRecording());
         document.getElementById('stopRecord').addEventListener('click', () => this.stopRecording());
-        document.getElementById('playback').addEventListener('click', () => this.playback());
+        document.getElementById('playback').addEventListener('click', () => this.togglePlayback());
+        document.getElementById('stopPlayback').addEventListener('click', () => this.stopPlayback());
         document.getElementById('toggleDrone').addEventListener('click', () => this.toggleDrone());
         document.getElementById('exportAudio').addEventListener('click', () => this.exportAudio());
         document.getElementById('exportNotation').addEventListener('click', () => this.exportNotation());
-        document.getElementById('lyricsInput').addEventListener('input', () => this.processLyrics());
+        document.getElementById('exportFrequency').addEventListener('click', () => this.exportFrequency());
+        document.getElementById('lyricsInput').addEventListener('input', () => {
+            this.processLyrics();
+            this.saveSessionOptions();
+        });
         
         // Progressive disclosure for notation style
-        document.getElementById('notationStyle').addEventListener('change', () => this.handleNotationStyleChange());
+        document.getElementById('notationStyle').addEventListener('change', () => {
+            this.handleNotationStyleChange();
+            this.saveSessionOptions();
+        });
+        
+        // Save options when changed
+        document.getElementById('basePitch').addEventListener('change', () => {
+            this.saveSessionOptions();
+            this.initializeDial(); // Reinitialize dial with new shruti
+        });
+        document.getElementById('language').addEventListener('change', () => {
+            this.saveSessionOptions();
+            this.initializeDial(); // Reinitialize dial with new language
+        });
+        document.getElementById('minNoteLength').addEventListener('change', () => this.saveSessionOptions());
         
         // Help modal
         document.getElementById('helpBtn').addEventListener('click', () => this.showHelp());
@@ -103,6 +361,15 @@ class SvaraScribe {
         
         // Clear live notation
         document.getElementById('clearLive').addEventListener('click', () => this.clearLiveNotation());
+        
+        // Floating stop button
+        document.getElementById('floatingStop').addEventListener('click', () => this.stopAllAudio());
+        
+        // Playback controls
+        this.initializePlaybackControls();
+        
+        // Floating navigation
+        this.initializeFloatingNav();
         
         // Initialize UI state
         this.handleNotationStyleChange();
@@ -123,37 +390,97 @@ class SvaraScribe {
         
         const basePitch = parseFloat(document.getElementById('basePitch').value);
         
-        this.droneOscillator = this.audioContext.createOscillator();
-        this.droneGain = this.audioContext.createGain();
+        // Create tanpura-like sound with multiple harmonics
+        this.createTanpuraSound(basePitch);
         
-        this.droneOscillator.frequency.setValueAtTime(basePitch, this.audioContext.currentTime);
-        this.droneOscillator.type = 'sine';
-        
-        this.droneGain.gain.setValueAtTime(0.3, this.audioContext.currentTime);
-        
-        this.droneOscillator.connect(this.droneGain);
-        this.droneGain.connect(this.audioContext.destination);
-        
-        this.droneOscillator.start();
         this.isDronePlaying = true;
-        
-        // Update button appearance
         this.updateDroneButton();
+        this.showFloatingStop();
         
         // Check for volume issues after a brief delay
         setTimeout(() => this.checkVolumeLevel(), 1000);
     }
 
-    stopDrone() {
-        if (this.droneOscillator) {
-            this.droneOscillator.stop();
-            this.droneOscillator = null;
-            this.droneGain = null;
-            this.isDronePlaying = false;
+    createTanpuraSound(fundamental) {
+        // Tanpura harmonic series with realistic amplitudes
+        const harmonics = [
+            { ratio: 1.0, amplitude: 0.8 },    // Fundamental
+            { ratio: 2.0, amplitude: 0.4 },    // Octave
+            { ratio: 3.0, amplitude: 0.3 },    // Perfect fifth
+            { ratio: 4.0, amplitude: 0.2 },    // Double octave
+            { ratio: 5.0, amplitude: 0.15 },   // Major third (2 octaves up)
+            { ratio: 6.0, amplitude: 0.1 },    // Perfect fifth (2 octaves up)
+            { ratio: 8.0, amplitude: 0.08 },   // Triple octave
+            { ratio: 10.0, amplitude: 0.05 }   // Major third (3 octaves up)
+        ];
+        
+        // Master gain for the entire tanpura sound
+        this.droneGain = this.audioContext.createGain();
+        this.droneGain.gain.setValueAtTime(0.15, this.audioContext.currentTime);
+        this.droneGain.connect(this.audioContext.destination);
+        
+        // Create each harmonic
+        harmonics.forEach((harmonic, index) => {
+            const oscillator = this.audioContext.createOscillator();
+            const gain = this.audioContext.createGain();
             
-            // Update button appearance
-            this.updateDroneButton();
-        }
+            // Set frequency and amplitude
+            oscillator.frequency.setValueAtTime(fundamental * harmonic.ratio, this.audioContext.currentTime);
+            oscillator.type = 'sine';
+            gain.gain.setValueAtTime(harmonic.amplitude, this.audioContext.currentTime);
+            
+            // Add slight detuning for more realistic tanpura sound
+            const detune = (Math.random() - 0.5) * 2; // ±1 cent
+            oscillator.detune.setValueAtTime(detune, this.audioContext.currentTime);
+            
+            // Connect oscillator -> gain -> master gain
+            oscillator.connect(gain);
+            gain.connect(this.droneGain);
+            
+            // Start the oscillator
+            oscillator.start();
+            
+            // Store references for cleanup
+            this.tanpuraOscillators.push(oscillator);
+            this.tanpuraGains.push(gain);
+        });
+        
+        // Add subtle amplitude modulation for breathing effect
+        const lfo = this.audioContext.createOscillator();
+        const lfoGain = this.audioContext.createGain();
+        
+        lfo.frequency.setValueAtTime(0.5, this.audioContext.currentTime); // 0.5 Hz breathing
+        lfo.type = 'sine';
+        lfoGain.gain.setValueAtTime(0.02, this.audioContext.currentTime); // Subtle modulation
+        
+        lfo.connect(lfoGain);
+        lfoGain.connect(this.droneGain.gain);
+        lfo.start();
+        
+        this.tanpuraOscillators.push(lfo);
+        this.tanpuraGains.push(lfoGain);
+    }
+
+    stopDrone() {
+        // Stop all tanpura oscillators
+        this.tanpuraOscillators.forEach(oscillator => {
+            if (oscillator) {
+                oscillator.stop();
+            }
+        });
+        
+        // Clear arrays
+        this.tanpuraOscillators = [];
+        this.tanpuraGains = [];
+        
+        // Clean up main references
+        this.droneOscillator = null;
+        this.droneGain = null;
+        this.isDronePlaying = false;
+        
+        // Update button appearance
+        this.updateDroneButton();
+        this.hideFloatingStop();
     }
 
     updateDroneButton() {
@@ -199,6 +526,7 @@ class SvaraScribe {
     }
 
     showHelp() {
+        document.getElementById('versionDisplay').textContent = 'v0.3.WORLD';
         document.getElementById('helpModal').style.display = 'block';
     }
 
@@ -256,13 +584,6 @@ class SvaraScribe {
         return errors === 0;
     }
 
-    setupCanvas() {
-        this.canvas.width = this.canvas.offsetWidth;
-        this.canvas.height = 200;
-        this.ctx.fillStyle = '#f8f9fa';
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    }
-
     async startRecording() {
         if (!this.audioContext) {
             const initialized = await this.initializeAudio();
@@ -273,7 +594,10 @@ class SvaraScribe {
         this.pitchData = [];
         this.timeData = [];
         this.liveNotation = [];
+        this.detectedSyllables = [];
+        this.currentSyllableNotes = [];
         this.lastNoteTime = Date.now();
+        this.recordingStartTime = Date.now(); // Initialize recording start time
         this.currentNote = null;
         
         // Reset pitch stabilization
@@ -296,6 +620,49 @@ class SvaraScribe {
         this.mediaRecorder.stop();
         this.isRecording = false;
         
+        // Finalize the current note if it exists
+        if (this.currentNote) {
+            const currentTime = Date.now() - this.recordingStartTime;
+            this.currentNote.duration = currentTime - this.currentNote.startTime;
+            const minNoteDuration = parseInt(document.getElementById('minNoteLength').value) || 50;
+            
+            // Apply same logic as during recording
+            if (this.currentNote.duration >= minNoteDuration) {
+                this.liveNotation.push({...this.currentNote});
+                this.currentSyllableNotes.push({...this.currentNote});
+            } else {
+                // Handle short final note
+                if (this.liveNotation.length > 0) {
+                    // Merge with previous note
+                    const lastNote = this.liveNotation[this.liveNotation.length - 1];
+                    lastNote.duration += this.currentNote.duration;
+                } else {
+                    // Create empty block for short final note
+                    const emptyBlock = {
+                        svara: '',
+                        svaraIndex: -1,
+                        octave: 0,
+                        displayNote: '∼',
+                        startTime: this.currentNote.startTime,
+                        duration: this.currentNote.duration,
+                        pitch: this.currentNote.pitch,
+                        waveform: null,
+                        isEmpty: true
+                    };
+                    this.liveNotation.push(emptyBlock);
+                    this.currentSyllableNotes.push(emptyBlock);
+                }
+            }
+            
+            // Finalize current syllable
+            if (this.currentSyllableNotes.length > 0) {
+                this.detectedSyllables.push([...this.currentSyllableNotes]);
+            }
+            
+            this.currentNote = null;
+            this.currentSyllableNotes = [];
+        }
+        
         document.getElementById('startRecord').disabled = false;
         document.getElementById('stopRecord').disabled = true;
         document.getElementById('playback').disabled = false;
@@ -314,7 +681,7 @@ class SvaraScribe {
         this.displayAnalysis(filteredData);
     }
 
-    startPitchDetection() {
+    async startPitchDetection() {
         const bufferLength = this.analyser.frequencyBinCount;
         const dataArray = new Float32Array(bufferLength);
         
@@ -322,14 +689,17 @@ class SvaraScribe {
             if (!this.isRecording) return;
             
             this.analyser.getFloatTimeDomainData(dataArray);
+            this.lastAudioData = dataArray.slice(); // Store for harmonic analysis
             
             try {
                 var pitch;
-                if (typeof Pitchy !== 'undefined' && Pitchy.findPitch) {
-                    pitch = Pitchy.findPitch(dataArray, this.audioContext.sampleRate);
-                } else {
-                    // Fallback: simple autocorrelation pitch detection
-                    pitch = this.simpleAutocorrelation(dataArray, this.audioContext.sampleRate);
+                // Primary: Use improved autocorrelation
+                pitch = this.autoCorrelate(dataArray, this.audioContext.sampleRate);
+                
+                // Try WORLD algorithm as alternative if primary detection seems unreliable
+                if (pitch && (pitch < 80 || pitch > 1000)) {
+                    // Skip unreliable pitch readings
+                    pitch = null;
                 }
                 
                 if (pitch && pitch > 80 && pitch < 2000) {
@@ -341,7 +711,7 @@ class SvaraScribe {
                     
                     // Check if this is likely background noise
                     if (this.isBackgroundNoise(pitch, dataArray)) {
-                        requestAnimationFrame(detectPitch);
+                        setTimeout(detectPitch, 50);
                         return; // Skip this pitch detection but continue loop
                     }
                     
@@ -351,7 +721,7 @@ class SvaraScribe {
                     // Stabilize pitch to reduce fluctuations
                     const stabilizedPitch = this.stabilizePitch(pitch);
                     if (!stabilizedPitch) {
-                        requestAnimationFrame(detectPitch);
+                        setTimeout(detectPitch, 50);
                         return;
                     }
                     
@@ -372,10 +742,115 @@ class SvaraScribe {
                 // Continue even if there's an error
             }
             
-            requestAnimationFrame(detectPitch);
+            // Use 50ms interval (20 times per second) for smooth continuous updates
+            setTimeout(detectPitch, 50);
         };
         
         detectPitch();
+    }
+
+    detectHarmonicsWithStrength(fundamentalFreq, audioData, sampleRate) {
+        if (!fundamentalFreq || !audioData) return [];
+        
+        const harmonicData = [];
+        const fundamentalStrength = this.getPitchStrength(audioData, sampleRate, fundamentalFreq);
+        
+        // Always include fundamental
+        harmonicData.push({
+            frequency: fundamentalFreq,
+            harmonic: 1,
+            strength: fundamentalStrength,
+            normalizedStrength: 1.0
+        });
+        
+        // Check up to 4 harmonics to fit in card
+        for (let harmonic = 2; harmonic <= 4; harmonic++) {
+            const harmonicFreq = fundamentalFreq * harmonic;
+            if (harmonicFreq > sampleRate / 2) break; // Nyquist limit
+            
+            const strength = this.getPitchStrength(audioData, sampleRate, harmonicFreq);
+            const normalizedStrength = fundamentalStrength > 0 ? strength / fundamentalStrength : 0;
+            
+            harmonicData.push({
+                frequency: harmonicFreq,
+                harmonic: harmonic,
+                strength: strength,
+                normalizedStrength: normalizedStrength
+            });
+        }
+        
+        return harmonicData;
+    }
+
+    getPitchStrength(audioData, sampleRate, frequency) {
+        const period = sampleRate / frequency;
+        const periodSamples = Math.round(period);
+        
+        if (periodSamples >= audioData.length / 2) return 0;
+        
+        let correlation = 0;
+        let energy = 0;
+        const samples = Math.min(audioData.length - periodSamples, 1024);
+        
+        for (let i = 0; i < samples; i++) {
+            correlation += audioData[i] * audioData[i + periodSamples];
+            energy += audioData[i] * audioData[i];
+        }
+        
+        return energy > 0 ? Math.abs(correlation) / energy : 0;
+    }
+    
+    updateHarmonicBars(harmonicData) {
+        const container = document.getElementById('harmonicBars');
+        if (!container || !harmonicData.length) return;
+        
+        const basePitch = parseFloat(document.getElementById('basePitch').value);
+        container.innerHTML = '';
+        
+        harmonicData.forEach(data => {
+            const barHeight = Math.max(2, data.normalizedStrength * 50); // Max 50px height
+            
+            // Get Carnatic note for this harmonic frequency
+            const svaraData = this.frequencyToCarnaticSvara(data.frequency);
+            const noteName = svaraData ? svaraData.displayNote : `H${data.harmonic}`;
+            
+            const barElement = document.createElement('div');
+            barElement.className = 'harmonic-bar';
+            
+            barElement.innerHTML = `
+                <div class="harmonic-bar-fill" style="height: ${barHeight}px;"></div>
+                <div class="harmonic-label">
+                    ${noteName}<br>
+                    ${data.frequency.toFixed(0)}Hz<br>
+                    ${(data.normalizedStrength * 100).toFixed(0)}%
+                </div>
+            `;
+            
+            container.appendChild(barElement);
+        });
+    }
+
+    detectHarmonics(fundamentalFreq, audioData, sampleRate) {
+        if (!fundamentalFreq || !audioData) return [fundamentalFreq];
+        
+        const harmonics = [fundamentalFreq];
+        const threshold = 0.1; // Minimum strength threshold
+        
+        // Check up to 6 harmonics
+        for (let harmonic = 2; harmonic <= 6; harmonic++) {
+            const harmonicFreq = fundamentalFreq * harmonic;
+            if (harmonicFreq > sampleRate / 2) break; // Nyquist limit
+            
+            const strength = this.getPitchStrength(audioData, sampleRate, harmonicFreq);
+            const fundamentalStrength = this.getPitchStrength(audioData, sampleRate, fundamentalFreq);
+            
+            // Include harmonic if it's strong enough relative to fundamental
+            if (strength > threshold && strength > fundamentalStrength * 0.3) {
+                harmonics.push(harmonicFreq);
+            }
+        }
+        
+        return harmonics;
     }
 
     // Simple autocorrelation fallback for pitch detection
@@ -419,31 +894,42 @@ class SvaraScribe {
         // Keep track of recent pitches for stabilization
         this.recentPitches.push(pitch);
         
-        // Keep only last 5 pitches
-        if (this.recentPitches.length > 5) {
+        // Keep only last 3 pitches for faster response
+        if (this.recentPitches.length > 3) {
             this.recentPitches.shift();
         }
         
-        // Need at least 3 readings for stabilization
-        if (this.recentPitches.length < 3) {
-            return null;
+        // Need at least 2 readings for basic stabilization
+        if (this.recentPitches.length < 2) {
+            return pitch; // Return immediately for faster response
         }
         
-        // Calculate median pitch (more stable than average)
+        // Calculate median pitch
         const sortedPitches = [...this.recentPitches].sort((a, b) => a - b);
         const medianPitch = sortedPitches[Math.floor(sortedPitches.length / 2)];
         
-        // Check if pitches are reasonably stable (within 20% variance)
-        const maxVariance = medianPitch * 0.20; // 20% tolerance
+        // Check if there's a significant pitch change (more than 30 cents)
+        if (this.stablePitch) {
+            const cents = Math.abs(1200 * Math.log2(medianPitch / this.stablePitch));
+            if (cents > 30) {
+                // Clear history for quick adaptation to new pitch
+                this.recentPitches = [pitch];
+                this.stablePitch = pitch;
+                return pitch;
+            }
+        }
+        
+        // Use looser variance for faster adaptation (30% tolerance)
+        const maxVariance = medianPitch * 0.30;
         const isStable = this.recentPitches.every(p => Math.abs(p - medianPitch) <= maxVariance);
         
-        if (isStable) {
+        if (isStable || !this.stablePitch) {
             this.stablePitch = medianPitch;
             return medianPitch;
         }
         
-        // If not stable, return previous stable pitch if available
-        return this.stablePitch;
+        // Return current pitch instead of old stable pitch for responsiveness
+        return pitch;
     }
     
     extractAudioFeatures(dataArray, pitch) {
@@ -512,14 +998,19 @@ class SvaraScribe {
     updateLiveNotationWithSyllables(svaraData, currentTime, isNewSyllable) {
         const notationStyle = document.getElementById('notationStyle').value;
         const language = document.getElementById('language').value;
-        const minNoteDuration = 150; // ms
+        const minNoteDuration = parseInt(document.getElementById('minNoteLength').value) || 50;
         
         // Get display note
         let displayNote;
         if (notationStyle === 'western') {
             displayNote = this.westernNotes[svaraData.index % 12];
         } else {
-            displayNote = this.languageSupport.getFormattedSvara(svaraData.index, language, svaraData.octave);
+            // Use images for Telugu to avoid font issues
+            if (language === 'telugu') {
+                displayNote = this.languageSupport.getFormattedSvaraImage(svaraData.index, language, svaraData.octave);
+            } else {
+                displayNote = this.languageSupport.getFormattedSvara(svaraData.index, language, svaraData.octave);
+            }
         }
         
         // Capture current waveform data
@@ -545,8 +1036,22 @@ class SvaraScribe {
             }
         }
         
-        // Check if this is the same note as current
-        if (this.currentNote && this.currentNote.svara === svaraData.svara && this.currentNote.octave === svaraData.octave && !isNewSyllable) {
+        // Check if this is a significantly different note
+        let isNewNote = false;
+        if (!this.currentNote) {
+            isNewNote = true;
+        } else {
+            // Check for svara change
+            const svaraChanged = this.currentNote.svara !== svaraData.svara || this.currentNote.octave !== svaraData.octave;
+            
+            // Check for significant pitch change (more than 50 cents)
+            const pitchChange = Math.abs(1200 * Math.log2(svaraData.pitch / this.currentNote.pitch));
+            const significantPitchChange = pitchChange > 50;
+            
+            isNewNote = svaraChanged || significantPitchChange || isNewSyllable;
+        }
+        
+        if (!isNewNote) {
             // Same note - update duration and pitch
             this.currentNote.duration = currentTime - this.currentNote.startTime;
             this.currentNote.displayNote = displayNote;
@@ -554,9 +1059,36 @@ class SvaraScribe {
             this.currentNote.waveform = waveformData;
         } else {
             // Different note or new syllable - finalize previous and start new
-            if (this.currentNote && (currentTime - this.currentNote.startTime) >= minNoteDuration) {
-                this.liveNotation.push({...this.currentNote});
-                this.currentSyllableNotes.push({...this.currentNote});
+            if (this.currentNote) {
+                const noteDuration = currentTime - this.currentNote.startTime;
+                
+                if (noteDuration >= minNoteDuration) {
+                    // Note is long enough, add it normally
+                    this.liveNotation.push({...this.currentNote});
+                    this.currentSyllableNotes.push({...this.currentNote});
+                } else {
+                    // Note is too short, handle it
+                    if (this.liveNotation.length > 0) {
+                        // Merge with previous note by extending its duration
+                        const lastNote = this.liveNotation[this.liveNotation.length - 1];
+                        lastNote.duration += noteDuration;
+                    } else {
+                        // No previous note, create a small empty block
+                        const emptyBlock = {
+                            svara: '',
+                            svaraIndex: -1,
+                            octave: 0,
+                            displayNote: '∼',
+                            startTime: this.currentNote.startTime,
+                            duration: noteDuration,
+                            pitch: this.currentNote.pitch,
+                            waveform: null,
+                            isEmpty: true
+                        };
+                        this.liveNotation.push(emptyBlock);
+                        this.currentSyllableNotes.push(emptyBlock);
+                    }
+                }
             }
             
             // Start new note
@@ -575,25 +1107,20 @@ class SvaraScribe {
         }
         rms = Math.sqrt(rms / audioBuffer.length);
         
-        // Much stricter filtering for background noise
-        if (rms < 0.015) return true; // Increased from 0.005
+        // Less aggressive filtering for better responsiveness
+        if (rms < 0.008) return true; // Reduced threshold
         
-        // Fan noise is typically low frequency and consistent
-        if (pitch < 150 && rms < 0.03) return true; // Broader low-freq filter
+        // Only filter very low frequencies that are clearly noise
+        if (pitch < 80 && rms < 0.02) return true;
         
-        // Check for repetitive patterns (fan noise characteristic)
-        if (this.pitchData.length > 8) {
-            const recentPitches = this.pitchData.slice(-8).map(d => d.pitch);
+        // Reduced repetitive pattern checking for faster response
+        if (this.pitchData.length > 4) {
+            const recentPitches = this.pitchData.slice(-4).map(d => d.pitch);
             const avgPitch = recentPitches.reduce((a, b) => a + b, 0) / recentPitches.length;
             
-            // If last 8 pitches are very similar (fan noise pattern)
-            const allSimilar = recentPitches.every(p => Math.abs(p - avgPitch) < 20);
-            if (allSimilar && rms < 0.025) return true;
-            
-            // Check for same svara repetition
-            const recentSvaras = this.pitchData.slice(-6).map(d => d.svara);
-            const sameSvara = recentSvaras.every(s => s === recentSvaras[0]);
-            if (sameSvara && rms < 0.02) return true;
+            // Only filter if extremely similar and very quiet
+            const allSimilar = recentPitches.every(p => Math.abs(p - avgPitch) < 10);
+            if (allSimilar && rms < 0.015) return true;
         }
         
         return false;
@@ -637,56 +1164,249 @@ class SvaraScribe {
     }
 
     frequencyToCarnaticSvara(frequency) {
-        const basePitch = parseFloat(document.getElementById('basePitch').value);
-        let ratio = frequency / basePitch;
+        let basePitch = parseFloat(document.getElementById('basePitch').value);
+        
+        // // Auto-detect base pitch from first few notes if significantly off
+        // if (this.pitchData.length < 10) {
+        //     const detectedSa = this.autoDetectBasePitch(frequency);
+        //     if (detectedSa && Math.abs(detectedSa - basePitch) > basePitch * 0.15) { // More sensitive
+        //         basePitch = detectedSa;
+        //         // Update UI to show detected base pitch
+        //         const closestOption = this.findClosestBasePitchOption(detectedSa);
+        //         if (closestOption) {
+        //             document.getElementById('basePitch').value = closestOption;
+        //         }
+        //         console.log(`Auto-detected base pitch: ${detectedSa}Hz (was ${parseFloat(document.getElementById('basePitch').value)}Hz)`);
+        //     }
+        // }
+        
+        // Harmonic correction: if frequency is significantly low, try doubling it
+        let correctedFrequency = frequency;
+        if (frequency < basePitch * 0.5) { // More conservative threshold
+            correctedFrequency = frequency * 2;
+            console.log(`Harmonic correction: ${frequency}Hz → ${correctedFrequency}Hz`);
+        }
+        
+        let ratio = correctedFrequency / basePitch;
         
         // Determine octave and normalize ratio to 1-2 range
         let octave = 0;
         
-        // Handle lower octaves
-        while (ratio < 1.0) {
-            ratio *= 2.0;
-            octave--;
-        }
+        // More precise octave detection - use log2 for better accuracy
+        const logRatio = Math.log2(ratio);
+        octave = Math.floor(logRatio);
+        ratio = Math.pow(2, logRatio - octave); // Normalize to 1-2 range
         
-        // Handle higher octaves  
-        while (ratio >= 2.0) {
-            ratio /= 2.0;
-            octave++;
-        }
-        
-        // Now ratio is between 1.0 and 2.0, find closest svara
+        // Now find the closest svara across all possible octaves
         let closestSvara = 'Sa';
         let closestIndex = 0;
-        let minDifference = Math.abs(ratio - 1.0);
+        let closestOctave = 0;
+        let minCentsDifference = Infinity;
         
-        // Equal temperament ratios for Carnatic svaras
+        // Just intonation ratios for Carnatic svaras (more accurate for traditional music)
         const swaraArray = [
             { svara: 'Sa', ratio: 1.0, index: 0 },
-            { svara: 'Ri1', ratio: Math.pow(2, 1/12), index: 1 },
-            { svara: 'Ri2', ratio: Math.pow(2, 2/12), index: 2 },
-            { svara: 'Ga1', ratio: Math.pow(2, 3/12), index: 3 },
-            { svara: 'Ga2', ratio: Math.pow(2, 4/12), index: 4 },
-            { svara: 'Ma1', ratio: Math.pow(2, 5/12), index: 5 },
-            { svara: 'Ma2', ratio: Math.pow(2, 6/12), index: 6 },
-            { svara: 'Pa', ratio: Math.pow(2, 7/12), index: 7 },
-            { svara: 'Dha1', ratio: Math.pow(2, 8/12), index: 8 },
-            { svara: 'Dha2', ratio: Math.pow(2, 9/12), index: 9 },
-            { svara: 'Ni1', ratio: Math.pow(2, 10/12), index: 10 },
-            { svara: 'Ni2', ratio: Math.pow(2, 11/12), index: 11 }
+            { svara: 'Ri1', ratio: 16/15, index: 1 },
+            { svara: 'Ri2', ratio: 9/8, index: 2 },
+            { svara: 'Ga1', ratio: 6/5, index: 3 },
+            { svara: 'Ga2', ratio: 5/4, index: 4 },
+            { svara: 'Ma1', ratio: 4/3, index: 5 },
+            { svara: 'Ma2', ratio: 45/32, index: 6 },
+            { svara: 'Pa', ratio: 3/2, index: 7 },
+            { svara: 'Dha1', ratio: 8/5, index: 8 },
+            { svara: 'Dha2', ratio: 5/3, index: 9 },
+            { svara: 'Ni1', ratio: 16/9, index: 10 },
+            { svara: 'Ni2', ratio: 15/8, index: 11 }
         ];
         
-        // Find closest match
-        swaraArray.forEach((swaraData) => {
-            const difference = Math.abs(ratio - swaraData.ratio);
-            if (difference < minDifference) {
-                minDifference = difference;
-                closestSvara = swaraData.svara;
-                closestIndex = swaraData.index;
+        // Check svaras in nearby octaves (-2 to +2)
+        for (let octaveOffset = -2; octaveOffset <= 2; octaveOffset++) {
+            swaraArray.forEach((swaraData) => {
+                const expectedFreq = basePitch * swaraData.ratio * Math.pow(2, octaveOffset);
+                const centsDifference = Math.abs(1200 * Math.log2(correctedFrequency / expectedFreq));
+                
+                if (centsDifference < minCentsDifference) {
+                    minCentsDifference = centsDifference;
+                    closestSvara = swaraData.svara;
+                    closestIndex = swaraData.index;
+                    closestOctave = octaveOffset;
+                }
+            });
+        }
+        
+        return { svara: closestSvara, index: closestIndex, octave: closestOctave };
+    }
+
+    autoDetectBasePitch(frequency) {
+        // Find the fundamental frequency by checking which octave makes most sense
+        const possibleSaFreqs = [
+            65.41, 130.81, 261.63, 523.25, 1046.50 // C2, C3, C4, C5, C6
+        ];
+        
+        let bestSa = null;
+        let bestScore = -1;
+        
+        possibleSaFreqs.forEach(sa => {
+            const ratio = frequency / sa;
+            
+            // Score based on how close the ratio is to a simple harmonic ratio
+            let score = 0;
+            
+            // Check if it's close to fundamental (1.0) or simple harmonics (2.0, 0.5)
+            const distances = [
+                Math.abs(ratio - 1.0),     // Fundamental
+                Math.abs(ratio - 0.5),     // Sub-octave
+                Math.abs(ratio - 2.0),     // Octave
+                Math.abs(ratio - 1.5),     // Perfect fifth
+                Math.abs(ratio - 1.25),    // Major third
+                Math.abs(ratio - 1.125)    // Major second
+            ];
+            
+            const minDistance = Math.min(...distances);
+            score = 1.0 / (minDistance + 0.01); // Higher score for smaller distance
+            
+            // Prefer lower octaves (more likely to be fundamental)
+            if (sa <= 130.81) score *= 1.5;
+            
+            if (score > bestScore) {
+                bestScore = score;
+                bestSa = sa;
             }
         });
         
-        return { svara: closestSvara, index: closestIndex, octave: octave };
+        return bestSa;
+    }
+
+    findClosestBasePitchOption(targetFreq) {
+        const select = document.getElementById('basePitch');
+        let closestValue = null;
+        let minDiff = Infinity;
+        
+        for (let option of select.options) {
+            const freq = parseFloat(option.value);
+            const diff = Math.abs(freq - targetFreq);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closestValue = option.value;
+            }
+        }
+        
+        return closestValue;
+    }
+
+    applyHanningWindow(data) {
+        const windowed = new Float32Array(data.length);
+        for (let i = 0; i < data.length; i++) {
+            const window = 0.5 * (1 - Math.cos(2 * Math.PI * i / (data.length - 1)));
+            windowed[i] = data[i] * window;
+        }
+        return windowed;
+    }
+
+    computeFFT(data) {
+        // Simple DFT implementation (can be replaced with proper FFT)
+        const N = data.length;
+        const spectrum = new Array(N / 2);
+        
+        for (let k = 0; k < N / 2; k++) {
+            let real = 0, imag = 0;
+            for (let n = 0; n < N; n++) {
+                const angle = -2 * Math.PI * k * n / N;
+                real += data[n] * Math.cos(angle);
+                imag += data[n] * Math.sin(angle);
+            }
+            spectrum[k] = Math.sqrt(real * real + imag * imag);
+        }
+        
+        return spectrum;
+    }
+
+    estimateF0FromSpectrum(spectrum, sampleRate) {
+        const minF0 = 80;   // Minimum vocal F0
+        const maxF0 = 800;  // Maximum vocal F0
+        
+        const minBin = Math.floor(minF0 * spectrum.length * 2 / sampleRate);
+        const maxBin = Math.floor(maxF0 * spectrum.length * 2 / sampleRate);
+        
+        // Find spectral peaks
+        const peaks = this.findSpectralPeaks(spectrum, minBin, maxBin);
+        
+        // Use harmonic template matching to find F0
+        let bestF0 = 0;
+        let bestScore = 0;
+        
+        for (const peak of peaks) {
+            const f0Candidate = peak.frequency * sampleRate / (spectrum.length * 2);
+            const score = this.harmonicTemplateScore(spectrum, f0Candidate, sampleRate);
+            
+            if (score > bestScore) {
+                bestScore = score;
+                bestF0 = f0Candidate;
+            }
+        }
+        
+        return bestScore > 0.2 ? bestF0 : 0;
+    }
+
+    findSpectralPeaks(spectrum, minBin, maxBin) {
+        const peaks = [];
+        
+        for (let i = minBin + 1; i < maxBin - 1; i++) {
+            if (spectrum[i] > spectrum[i-1] && spectrum[i] > spectrum[i+1]) {
+                // Local maximum found
+                if (spectrum[i] > 0.1 * Math.max(...spectrum)) { // Threshold
+                    peaks.push({
+                        bin: i,
+                        frequency: i,
+                        magnitude: spectrum[i]
+                    });
+                }
+            }
+        }
+        
+        // Sort by magnitude
+        return peaks.sort((a, b) => b.magnitude - a.magnitude).slice(0, 10);
+    }
+
+    harmonicTemplateScore(spectrum, f0, sampleRate) {
+        const harmonics = [1, 2, 3, 4, 5, 6]; // First 6 harmonics
+        let totalScore = 0;
+        let harmonicCount = 0;
+        
+        for (const harmonic of harmonics) {
+            const harmonicFreq = f0 * harmonic;
+            const bin = Math.round(harmonicFreq * spectrum.length * 2 / sampleRate);
+            
+            if (bin < spectrum.length) {
+                // Check magnitude at harmonic frequency
+                const magnitude = spectrum[bin];
+                const weight = 1.0 / harmonic; // Lower harmonics weighted more
+                totalScore += magnitude * weight;
+                harmonicCount++;
+            }
+        }
+        
+        return harmonicCount > 0 ? totalScore / harmonicCount : 0;
+    }
+
+    analyzeHarmonics(spectrum, f0, sampleRate) {
+        const harmonics = [2, 3, 4]; // Check 2nd, 3rd, 4th harmonics
+        let harmonicStrength = 0;
+        
+        const f0Bin = Math.round(f0 * spectrum.length * 2 / sampleRate);
+        const f0Magnitude = spectrum[f0Bin] || 0;
+        
+        if (f0Magnitude === 0) return 0;
+        
+        for (const harmonic of harmonics) {
+            const harmonicBin = Math.round(f0 * harmonic * spectrum.length * 2 / sampleRate);
+            if (harmonicBin < spectrum.length) {
+                const harmonicMagnitude = spectrum[harmonicBin] || 0;
+                harmonicStrength += harmonicMagnitude / f0Magnitude;
+            }
+        }
+        
+        return harmonicStrength / harmonics.length;
     }
 
     updateVisualization(pitch, svaraData) {
@@ -697,36 +1417,21 @@ class SvaraScribe {
         const basePitch = parseFloat(document.getElementById('basePitch').value);
         const { displayNote, deviation } = this.calculatePitchDeviation(pitch, svaraData, basePitch, notationStyle, language);
         
+        // Detect harmonics with strength for display
+        const harmonicData = this.detectHarmonicsWithStrength(pitch, this.lastAudioData, this.audioContext.sampleRate);
+        
         // Update pitch display
-        document.getElementById('pitchDisplay').textContent = displayNote;
-        document.getElementById('pitchDeviation').textContent = `${pitch.toFixed(1)} Hz ${deviation}`;
+        const pitchDisplay = document.getElementById('pitchDisplay');
+        const pitchDeviation = document.getElementById('pitchDeviation');
         
-        // Clear and redraw canvas (smaller now)
-        this.ctx.fillStyle = '#f8f9fa';
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        if (pitchDisplay) pitchDisplay.textContent = displayNote;
+        if (pitchDeviation) pitchDeviation.textContent = `${pitch.toFixed(1)} Hz ${deviation}`;
         
-        // Draw pitch history
-        if (this.pitchData.length > 1) {
-            this.ctx.strokeStyle = '#28a745';
-            this.ctx.lineWidth = 2;
-            this.ctx.beginPath();
-            
-            const maxPoints = 50; // Fewer points for smaller canvas
-            const recentData = this.pitchData.slice(-maxPoints);
-            
-            recentData.forEach((data, index) => {
-                const x = (index / maxPoints) * this.canvas.width;
-                const y = this.canvas.height - ((data.pitch - 200) / 600) * this.canvas.height;
-                
-                if (index === 0) {
-                    this.ctx.moveTo(x, y);
-                } else {
-                    this.ctx.lineTo(x, y);
-                }
-            });
-            
-            this.ctx.stroke();
-        }
+        // Update pitch dial
+        this.updateDial(pitch, svaraData);
+        
+        // Update harmonic bars
+        this.updateHarmonicBars(harmonicData);
     }
 
     calculatePitchDeviation(pitch, svaraData, basePitch, notationStyle, language) {
@@ -752,7 +1457,8 @@ class SvaraScribe {
         
         let displayNote;
         if (notationStyle === 'western') {
-            displayNote = this.westernNotes[svaraData.index % 12];
+            const octaveNumber = Math.floor(Math.log2(pitch / 261.63)) + 4; // C4 = 261.63 Hz
+            displayNote = this.westernNotes[svaraData.index % 12] + octaveNumber;
         } else {
             displayNote = this.languageSupport.getFormattedSvara(svaraData.index, language, svaraData.octave);
         }
@@ -769,7 +1475,8 @@ class SvaraScribe {
             const lowerDeviation = ((pitch - lowerExpectedFreq) / lowerExpectedFreq) * 100;
             
             if (notationStyle === 'western') {
-                displayNote = this.westernNotes[lowerIndex % 12];
+                const lowerOctaveNumber = Math.floor(Math.log2(pitch / 261.63)) + 4;
+                displayNote = this.westernNotes[lowerIndex % 12] + lowerOctaveNumber;
             } else {
                 displayNote = this.languageSupport.getFormattedSvara(lowerIndex, language, lowerOctave);
             }
@@ -783,7 +1490,8 @@ class SvaraScribe {
             const higherDeviation = ((pitch - higherExpectedFreq) / higherExpectedFreq) * 100;
             
             if (notationStyle === 'western') {
-                displayNote = this.westernNotes[higherIndex % 12];
+                const higherOctaveNumber = Math.floor(Math.log2(pitch / 261.63)) + 4;
+                displayNote = this.westernNotes[higherIndex % 12] + higherOctaveNumber;
             } else {
                 displayNote = this.languageSupport.getFormattedSvara(higherIndex, language, higherOctave);
             }
@@ -846,13 +1554,373 @@ class SvaraScribe {
         }, 5000);
     }
 
-    playback() {
+    togglePlayback() {
         if (this.recordedChunks.length === 0) return;
         
-        const blob = new Blob(this.recordedChunks, { type: 'audio/webm' });
-        const audioUrl = URL.createObjectURL(blob);
-        const audio = new Audio(audioUrl);
-        audio.play();
+        if (this.isPlayingBack) {
+            this.pausePlayback();
+        } else {
+            this.startPlayback();
+        }
+    }
+
+    startPlayback() {
+        if (this.currentAudio && this.currentAudio.paused) {
+            // Resume paused audio
+            this.currentAudio.play().catch(e => {
+                if (e.name !== 'AbortError') console.error('Playback error:', e);
+            });
+        } else {
+            // Start new playback
+            const blob = new Blob(this.recordedChunks, { type: 'audio/webm' });
+            const audioUrl = URL.createObjectURL(blob);
+            this.currentAudio = new Audio(audioUrl);
+            
+            this.currentAudio.addEventListener('ended', () => {
+                this.stopPlayback();
+            });
+            
+            this.currentAudio.play().catch(e => {
+                if (e.name !== 'AbortError') console.error('Playback error:', e);
+            });
+        }
+        
+        this.isPlayingBack = true;
+        this.updatePlaybackButtons();
+        this.showFloatingStop();
+        this.showPlaybackControls();
+        this.startPlaybackHighlighting();
+    }
+
+    pausePlayback() {
+        if (this.currentAudio) {
+            this.currentAudio.pause();
+        }
+        this.isPlayingBack = false;
+        this.updatePlaybackButtons();
+        this.stopPlaybackHighlighting();
+    }
+
+    stopPlayback() {
+        if (this.currentAudio) {
+            this.currentAudio.pause();
+            this.currentAudio.currentTime = 0;
+            URL.revokeObjectURL(this.currentAudio.src);
+            this.currentAudio = null;
+        }
+        this.isPlayingBack = false;
+        this.updatePlaybackButtons();
+        this.hideFloatingStop();
+        this.hidePlaybackControls();
+        this.stopPlaybackHighlighting();
+    }
+
+    updatePlaybackButtons() {
+        const playbackBtn = document.getElementById('playback');
+        const stopBtn = document.getElementById('stopPlayback');
+        const playIcon = playbackBtn.querySelector('.btn-icon');
+        const playText = playbackBtn.querySelector('.btn-text');
+        
+        if (this.isPlayingBack) {
+            playIcon.textContent = '⏸️';
+            playText.textContent = 'Pause';
+            stopBtn.style.display = 'inline-flex';
+        } else {
+            playIcon.textContent = '▶️';
+            playText.textContent = this.currentAudio ? 'Resume' : 'Playback';
+            if (!this.currentAudio) {
+                stopBtn.style.display = 'none';
+            }
+        }
+    }
+
+    showFloatingStop() {
+        const floatingBtn = document.getElementById('floatingStop');
+        if (floatingBtn) {
+            floatingBtn.classList.add('show');
+        }
+    }
+
+    hideFloatingStop() {
+        const floatingBtn = document.getElementById('floatingStop');
+        if (floatingBtn && !this.isDronePlaying && !this.isPlayingBack) {
+            floatingBtn.classList.remove('show');
+        }
+    }
+
+    stopAllAudio() {
+        if (this.isDronePlaying) {
+            this.stopDrone();
+        }
+        if (this.isPlayingBack) {
+            this.stopPlayback();
+        }
+    }
+
+    startPlaybackHighlighting() {
+        if (!this.currentAudio || this.liveNotation.length === 0) return;
+        
+        this.playbackHighlightInterval = setInterval(() => {
+            this.updatePlaybackHighlight();
+        }, 25); // Update every 25ms for smoother highlighting (was 50ms)
+    }
+
+    stopPlaybackHighlighting() {
+        if (this.playbackHighlightInterval) {
+            clearInterval(this.playbackHighlightInterval);
+            this.playbackHighlightInterval = null;
+        }
+        this.clearAllHighlights();
+    }
+
+    updatePlaybackHighlight() {
+        if (!this.currentAudio || !this.isPlayingBack) return;
+        
+        const currentTime = this.currentAudio.currentTime * 1000; // Convert to milliseconds
+        let cumulativeTime = 0;
+        let currentNoteIndex = -1;
+        
+        // Find which note should be highlighted based on playback time
+        for (let i = 0; i < this.liveNotation.length; i++) {
+            const note = this.liveNotation[i];
+            const noteStart = cumulativeTime;
+            const noteEnd = cumulativeTime + note.duration;
+            
+            if (currentTime >= noteStart && currentTime < noteEnd) {
+                currentNoteIndex = i;
+                // Debug logging for timing issues
+                // if (i % 5 === 0) { // Log every 5th note to avoid spam
+                //     const cleanNoteName = note.displayNote.includes('<img') ? 
+                //         note.svara || 'Note' : note.displayNote;
+                //     console.log(`Highlighting note ${i}: ${cleanNoteName} at ${currentTime.toFixed(0)}ms (${noteStart.toFixed(0)}-${noteEnd.toFixed(0)}ms)`);
+                // }
+                break;
+            }
+            cumulativeTime += note.duration;
+        }
+        
+        // Clear previous highlights
+        this.clearAllHighlights();
+        
+        // Check if playback has exceeded total duration
+        if (this.liveNotation.length > 0) {
+            const totalDuration = this.liveNotation.reduce((sum, note) => sum + note.duration, 0);
+            if (currentTime > totalDuration) {
+                // Stop playback if we've exceeded the total duration
+                this.stopPlayback();
+                return;
+            }
+        }
+        
+        // Highlight current note in live notation
+        if (currentNoteIndex >= 0) {
+            this.highlightLiveNote(currentNoteIndex);
+            this.highlightSynchronizedNote(currentNoteIndex);
+        }
+    }
+
+    highlightLiveNote(noteIndex) {
+        const liveNotes = document.querySelectorAll('#liveNotation .live-note');
+        if (liveNotes[noteIndex]) {
+            liveNotes[noteIndex].classList.add('note-highlight');
+        }
+    }
+
+    highlightSynchronizedNote(noteIndex) {
+        // Highlight corresponding note in synchronized notation
+        const noteElements = document.querySelectorAll('.note-position');
+        if (noteElements[noteIndex]) {
+            noteElements[noteIndex].classList.add('note-highlight');
+        }
+        
+        // Highlight corresponding syllable if mapped
+        if (this.syllableNoteMapping) {
+            const syllableIndex = this.syllableNoteMapping.indexOf(noteIndex);
+            if (syllableIndex >= 0) {
+                const syllableElements = document.querySelectorAll('.syllable-interactive');
+                if (syllableElements[syllableIndex]) {
+                    syllableElements[syllableIndex].classList.add('syllable-highlight');
+                }
+            }
+        }
+    }
+
+    clearAllHighlights() {
+        // Remove all highlighting classes
+        document.querySelectorAll('.note-highlight').forEach(el => {
+            el.classList.remove('note-highlight');
+        });
+        document.querySelectorAll('.syllable-highlight').forEach(el => {
+            el.classList.remove('syllable-highlight');
+        });
+    }
+
+    initializePlaybackControls() {
+        const slider = document.getElementById('playbackSlider');
+        const thumb = document.getElementById('playbackThumb');
+        
+        // Click on slider to seek
+        slider.addEventListener('click', (e) => {
+            if (!this.currentAudio) return;
+            const rect = slider.getBoundingClientRect();
+            const percent = (e.clientX - rect.left) / rect.width;
+            this.seekToPercent(percent);
+        });
+        
+        // Drag thumb to seek
+        thumb.addEventListener('mousedown', (e) => {
+            this.isDraggingSlider = true;
+            e.preventDefault();
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (!this.isDraggingSlider || !this.currentAudio) return;
+            const slider = document.getElementById('playbackSlider');
+            const rect = slider.getBoundingClientRect();
+            const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            this.seekToPercent(percent);
+        });
+        
+        document.addEventListener('mouseup', () => {
+            this.isDraggingSlider = false;
+        });
+    }
+
+    seekToPercent(percent) {
+        if (!this.currentAudio) return;
+        this.currentAudio.currentTime = percent * this.currentAudio.duration;
+        this.updatePlaybackProgress();
+    }
+
+    showPlaybackControls() {
+        const controls = document.getElementById('playbackControls');
+        if (controls && this.currentAudio) {
+            controls.classList.add('show');
+            this.updateTotalTime();
+            this.startProgressUpdates();
+        }
+    }
+
+    hidePlaybackControls() {
+        const controls = document.getElementById('playbackControls');
+        if (controls) {
+            controls.classList.remove('show');
+        }
+        this.stopProgressUpdates();
+    }
+
+    startProgressUpdates() {
+        this.progressInterval = setInterval(() => {
+            if (!this.isDraggingSlider) {
+                this.updatePlaybackProgress();
+            }
+        }, 100);
+    }
+
+    stopProgressUpdates() {
+        if (this.progressInterval) {
+            clearInterval(this.progressInterval);
+            this.progressInterval = null;
+        }
+    }
+
+    updatePlaybackProgress() {
+        if (!this.currentAudio) return;
+        
+        const percent = (this.currentAudio.currentTime / this.currentAudio.duration) * 100;
+        const progress = document.getElementById('playbackProgress');
+        const thumb = document.getElementById('playbackThumb');
+        const currentTime = document.getElementById('currentTime');
+        
+        if (progress) progress.style.width = `${percent}%`;
+        if (thumb) thumb.style.left = `${percent}%`;
+        if (currentTime) currentTime.textContent = this.formatTime(this.currentAudio.currentTime);
+    }
+
+    updateTotalTime() {
+        if (!this.currentAudio) return;
+        const totalTime = document.getElementById('totalTime');
+        if (totalTime) {
+            totalTime.textContent = this.formatTime(this.currentAudio.duration || 0);
+        }
+    }
+
+    formatTime(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    initializeFloatingNav() {
+        // Show/hide navigation based on scroll
+        window.addEventListener('scroll', () => {
+            this.updateFloatingNav();
+        });
+        
+        // Click handlers for navigation buttons
+        document.querySelectorAll('.nav-step').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const stepId = e.target.dataset.step;
+                this.scrollToStep(stepId);
+            });
+        });
+        
+        // Initial check
+        this.updateFloatingNav();
+    }
+
+    updateFloatingNav() {
+        const nav = document.getElementById('floatingNav');
+        const scrollY = window.scrollY;
+        const windowHeight = window.innerHeight;
+        
+        // Show navigation after scrolling past header
+        if (scrollY > 200) {
+            nav.classList.add('show');
+        } else {
+            nav.classList.remove('show');
+        }
+        
+        // Update active step based on scroll position
+        this.updateActiveStep();
+    }
+
+    updateActiveStep() {
+        const steps = ['step1', 'step2', 'step3'];
+        const navButtons = document.querySelectorAll('.nav-step');
+        let activeStep = null;
+        
+        // Find which step is currently in view
+        steps.forEach((stepId, index) => {
+            const element = document.getElementById(stepId);
+            if (element) {
+                const rect = element.getBoundingClientRect();
+                const isInView = rect.top <= window.innerHeight / 2 && rect.bottom >= window.innerHeight / 2;
+                
+                if (isInView) {
+                    activeStep = index;
+                }
+            }
+        });
+        
+        // Update active state
+        navButtons.forEach((btn, index) => {
+            if (index === activeStep) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+    }
+
+    scrollToStep(stepId) {
+        const element = document.getElementById(stepId);
+        if (element) {
+            element.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start'
+            });
+        }
     }
 
     analyzeRecording() {
@@ -1249,17 +2317,60 @@ class SvaraScribe {
         var html = '';
         
         // Show finalized notes with duration representation
-        this.liveNotation.forEach((note, index) => {
-            const durationClass = this.getDurationClass(note.duration);
-            const durationIndicator = this.getDurationIndicator(note.duration);
-            const pitchHz = note.pitch ? note.pitch.toFixed(2) : 'N/A';
-            const waveformSVG = this.generateWaveformSVG(note.waveform);
+        let i = 0;
+        while (i < this.liveNotation.length) {
+            const note = this.liveNotation[i];
             
-            html += `<span class="live-note ${durationClass}" 
-                data-tooltip="Pitch: ${pitchHz} Hz | Duration: ${note.duration}ms">
-                ${note.displayNote}${durationIndicator}
-            </span>`;
-        });
+            // Check if this note is under 100ms and can be grouped
+            if (note.duration < 100) {
+                let groupedNotes = [note];
+                let totalDuration = note.duration;
+                let j = i + 1;
+                
+                // Collect consecutive notes under 100ms
+                while (j < this.liveNotation.length && this.liveNotation[j].duration < 100) {
+                    groupedNotes.push(this.liveNotation[j]);
+                    totalDuration += this.liveNotation[j].duration;
+                    j++;
+                }
+                
+                // Create grouped span
+                const durationClass = this.getDurationClass(totalDuration);
+                const minWidth = 120; // Increased minimum width for grouped notes
+                const maxWidth = 300; // Increased maximum width
+                const baseDuration = 500;
+                const width = Math.min(maxWidth, Math.max(minWidth, (totalDuration / baseDuration) * 120 + minWidth));
+                
+                const groupedText = groupedNotes.map(n => n.displayNote).join(' ');
+                const avgPitch = groupedNotes.reduce((sum, n) => sum + (n.pitch || 0), 0) / groupedNotes.length;
+                
+                html += `<span class="live-note ${durationClass}" 
+                    style="width: ${width}px; text-align: center; font-size: 0.7em; white-space: nowrap; overflow: hidden;"
+                    data-tooltip="Grouped ${groupedNotes.length} notes | Avg Pitch: ${avgPitch.toFixed(2)} Hz | Total Duration: ${totalDuration}ms">
+                    ${groupedText}
+                </span>`;
+                
+                i = j; // Skip processed notes
+            } else {
+                // Single note (duration >= 100ms)
+                const durationClass = this.getDurationClass(note.duration);
+                const durationIndicator = this.getDurationIndicator(note.duration);
+                const pitchHz = note.pitch ? note.pitch.toFixed(2) : 'N/A';
+                
+                const minWidth = 60;
+                const maxWidth = 200;
+                const baseDuration = 500;
+                const width = Math.min(maxWidth, Math.max(minWidth, (note.duration / baseDuration) * 80 + minWidth));
+                
+                html += `<span class="live-note ${durationClass}" 
+                    style="width: ${width}px; text-align: center;"
+                    data-tooltip="Pitch: ${pitchHz} Hz | Duration: ${note.duration}ms">
+                    ${note.displayNote}${durationIndicator}
+                </span>`;
+                
+                i++;
+            }
+        }
         
         // Show current note being sung with real-time duration
         if (this.currentNote) {
@@ -1269,30 +2380,17 @@ class SvaraScribe {
             const pitchHz = this.currentNote.pitch ? this.currentNote.pitch.toFixed(2) : 'N/A';
             const waveformSVG = this.generateWaveformSVG(this.currentNote.waveform);
             
+            // Calculate width based on current duration
+            const minWidth = 60;
+            const maxWidth = 200;
+            const baseDuration = 500;
+            const width = Math.min(maxWidth, Math.max(minWidth, (currentDuration / baseDuration) * 80 + minWidth));
+            
             html += `<span class="live-note current ${durationClass}" 
+                style="width: ${width}px; text-align: center;"
                 data-tooltip="Pitch: ${pitchHz} Hz | Duration: ${currentDuration}ms">
                 ${this.currentNote.displayNote}${durationIndicator}
             </span>`;
-        }
-        
-        // Add syllable context if available
-        if (this.syllables.length > 0) {
-            html += '<br><br>';
-            const notesPerSyllable = Math.max(1, Math.floor(this.liveNotation.length / this.syllables.length));
-            const currentSyllableIndex = Math.min(
-                Math.floor(this.liveNotation.length / notesPerSyllable),
-                this.syllables.length - 1
-            );
-            
-            this.syllables.forEach((syllable, index) => {
-                const isActive = index === currentSyllableIndex;
-                const iast = language !== 'english' && this.syllablesIAST ? this.syllablesIAST[index] : '';
-                
-                html += `<div class="live-syllable ${isActive ? 'current' : ''}">
-                    <div class="text">${syllable}</div>
-                    ${iast ? `<div class="iast">${iast}</div>` : ''}
-                </div>`;
-            });
         }
         
         liveNotationDiv.innerHTML = html;
@@ -1427,7 +2525,7 @@ class SvaraScribe {
         const notationStyle = document.getElementById('notationStyle').value;
         const language = document.getElementById('language').value;
         
-        let notation = `SvaraScribe Notation Export\n`;
+        var notation = `Svara Lekhini Notation Export\n`;
         notation += `Style: ${notationStyle}\n`;
         notation += `Language: ${language}\n`;
         notation += `Base Pitch: ${document.getElementById('basePitch').value} Hz\n\n`;
@@ -1436,13 +2534,25 @@ class SvaraScribe {
         if (this.liveNotation.length > 0) {
             notation += `Live Notation:\n`;
             this.liveNotation.forEach((note, index) => {
-                let displayNote = note.displayNote;
+                var displayNote = note.displayNote;
                 if (notationStyle === 'carnatic') {
                     displayNote = this.languageSupport.formatDuration(displayNote, note.duration);
                 }
                 notation += `${displayNote} `;
             });
             notation += `\n\n`;
+        }
+
+        // Export frequency data if available
+        if (this.liveNotation.length > 0) {
+            notation += `Frequency Data (Hz):\n`;
+            this.liveNotation.forEach((note, index) => {
+                var displayNote = note.displayNote;
+                var frequency = note.pitch || 'N/A';
+                var duration = Math.round(note.duration);
+                notation += `${displayNote}: ${frequency} Hz (${duration}ms)\n`;
+            });
+            notation += `\n`;
         }
         
         // Export syllable analysis if available
@@ -1458,7 +2568,7 @@ class SvaraScribe {
                 
                 if (syllableNotes.length > 0) {
                     const dominantNote = this.findDominantNote(syllableNotes);
-                    let displayNote;
+                    var displayNote;
                     if (notationStyle === 'western') {
                         displayNote = this.westernNotes[dominantNote.svaraIndex % 12];
                     } else {
@@ -1468,10 +2578,11 @@ class SvaraScribe {
                     
                     const iast = language !== 'english' && this.syllablesIAST ? this.syllablesIAST[syllableIndex] : '';
                     const glideIndicator = syllableNotes.some(note => note.isGlide) ? ' ~' : '';
+                    const avgFreq = Math.round(syllableNotes.reduce((sum, n) => sum + n.pitch, 0) / syllableNotes.length);
                     
                     notation += `${syllable}`;
                     if (iast) notation += ` (${iast})`;
-                    notation += `: ${displayNote}${glideIndicator}\n`;
+                    notation += `: ${displayNote}${glideIndicator} - ${avgFreq} Hz\n`;
                 }
             });
         }
@@ -1480,7 +2591,40 @@ class SvaraScribe {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `svarascribe_notation_${Date.now()}.txt`;
+        a.download = `svara_lekhini_notation_${Date.now()}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    exportFrequency() {
+        if (this.liveNotation.length === 0) {
+            alert('No notation data to export. Please record and analyze first.');
+            return;
+        }
+
+        var frequencyData = `Svara Lekhini Frequency Export\n`;
+        frequencyData += `Base Pitch: ${document.getElementById('basePitch').value} Hz\n`;
+        frequencyData += `Export Time: ${new Date().toISOString()}\n\n`;
+        
+        frequencyData += `Time(ms)\tFrequency(Hz)\tNote\tDuration(ms)\n`;
+        
+        var currentTime = 0;
+        this.liveNotation.forEach((note, index) => {
+            var frequency = note.pitch ? Math.round(note.pitch * 100) / 100 : 'N/A';
+            var duration = Math.round(note.duration);
+            var displayNote = note.displayNote || 'Unknown';
+            
+            frequencyData += `${currentTime}\t${frequency}\t${displayNote}\t${duration}\n`;
+            currentTime += duration;
+        });
+        
+        const blob = new Blob([frequencyData], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `svara_lekhini_frequencies_${Date.now()}.txt`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -1490,3 +2634,10 @@ class SvaraScribe {
 
 // Initialize the application
 const app = new SvaraScribe();
+
+// Initialize dial after DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => app.initializeDial());
+} else {
+    app.initializeDial();
+}

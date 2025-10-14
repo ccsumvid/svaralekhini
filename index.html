@@ -356,6 +356,110 @@
             letter-spacing: 1px;
         }
 
+        .pitch-dial-container {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+        }
+
+        .pitch-dial {
+            position: relative;
+            width: 240px;  /* 20% bigger: 200px * 1.2 */
+            height: 240px; /* 20% bigger: 200px * 1.2 */
+            border: 3px solid #6c757d;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+        }
+
+        .dial-notes {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            font-size: 14px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .dial-note {
+            position: absolute;
+            z-index: 15; /* Higher than needle */
+            pointer-events: none; /* Prevent interaction issues */
+        }
+
+        .dial-needle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2px;
+            height: 65px; /* Further shortened from 75px to 65px */
+            background: #dc3545;
+            transform-origin: bottom center;
+            transform: translate(-50%, -100%) rotate(0deg);
+            transition: transform 0.1s ease;
+            z-index: 5; /* Lower than notes */
+        }
+
+        .dial-needle::before {
+            content: '';
+            position: absolute;
+            top: -8px;
+            left: -6px;
+            width: 0;
+            height: 0;
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-bottom: 12px solid #dc3545;
+        }
+
+        .dial-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            background: white;
+            border: 2px solid #6c757d;
+            border-radius: 50%;
+            width: 96px;  /* 20% bigger: 80px * 1.2 */
+            height: 96px; /* 20% bigger: 80px * 1.2 */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            z-index: 5;
+        }
+
+        .dial-note {
+            font-size: 18px;
+            font-weight: 700;
+            color: #dc3545;
+        }
+
+        .dial-freq {
+            font-size: 12px;
+            color: #6c757d;
+        }
+
+        .svara-image {
+            width: 20px;
+            height: 20px;
+            vertical-align: middle;
+            display: inline-block;
+            filter: brightness(0) saturate(100%) invert(var(--text-invert, 0));
+        }
+
+        [data-theme="dark"] .svara-image {
+            --text-invert: 1;
+        }
+
+        [data-theme="light"] .svara-image {
+            --text-invert: 0;
+        }
+
+        .live-note .svara-image {
+            width: 18px;
+            height: 18px;
+        }
+
         .pitch-display {
             font-size: 2.5rem;
             font-weight: 700;
@@ -371,11 +475,39 @@
             font-family: 'JetBrains Mono', monospace;
         }
 
-        #canvas {
-            width: 100%;
-            height: 80px;
-            border-radius: var(--border-radius-sm);
-            background: var(--bg-input);
+        .harmonic-bars {
+            display: flex;
+            gap: 4px;
+            margin: 0.5rem 0;
+            height: 60px;
+            align-items: end;
+            overflow: hidden;
+            max-width: 100%;
+            flex-wrap: nowrap;
+        }
+
+        .harmonic-bar {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 40px;
+            max-width: 60px;
+            flex-shrink: 1;
+        }
+
+        .harmonic-bar-fill {
+            width: 20px;
+            background: linear-gradient(to top, #4facfe, #00f2fe);
+            border-radius: 2px;
+            transition: height 0.1s ease;
+            min-height: 2px;
+        }
+
+        .harmonic-label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            margin-top: 2px;
+            text-align: center;
         }
 
         .notation-section {
@@ -527,6 +659,165 @@
                 margin-top: 1rem;
             }
         }
+        
+        /* Floating Stop Button */
+        .floating-stop {
+            position: fixed;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 1000;
+            background: var(--danger);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+        
+        .floating-stop:hover {
+            transform: translateY(-50%) scale(1.1);
+            box-shadow: 0 6px 25px rgba(0, 0, 0, 0.4);
+        }
+        
+        .floating-stop.show {
+            display: flex;
+        }
+        
+        /* Playback Highlighting */
+        .note-highlight {
+            background: var(--success) !important;
+            color: white !important;
+            transform: scale(1.1);
+            box-shadow: 0 0 15px rgba(52, 199, 89, 0.5);
+            z-index: 10;
+            position: relative;
+        }
+        
+        .syllable-highlight {
+            background: var(--success) !important;
+            color: white !important;
+            transform: scale(1.05);
+            box-shadow: 0 0 10px rgba(52, 199, 89, 0.4);
+        }
+        
+        /* Playback Control Bar */
+        .playback-controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 25px;
+            padding: 15px 25px;
+            display: none;
+            align-items: center;
+            gap: 15px;
+            box-shadow: var(--shadow);
+            z-index: 1000;
+            min-width: 400px;
+        }
+        
+        .playback-controls.show {
+            display: flex;
+        }
+        
+        .playback-time {
+            font-size: 12px;
+            color: var(--text-secondary);
+            min-width: 45px;
+            text-align: center;
+        }
+        
+        .playback-slider {
+            flex: 1;
+            height: 6px;
+            background: var(--bg-input);
+            border-radius: 3px;
+            position: relative;
+            cursor: pointer;
+        }
+        
+        .playback-progress {
+            height: 100%;
+            background: var(--success);
+            border-radius: 3px;
+            width: 0%;
+            transition: width 0.1s ease;
+        }
+        
+        .playback-thumb {
+            position: absolute;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 16px;
+            height: 16px;
+            background: var(--success);
+            border-radius: 50%;
+            cursor: grab;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        }
+        
+        .playback-thumb:active {
+            cursor: grabbing;
+            transform: translate(-50%, -50%) scale(1.2);
+        }
+        
+        /* Floating Navigation */
+        .floating-nav {
+            position: fixed;
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 999;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 25px;
+            padding: 10px;
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+            box-shadow: var(--shadow);
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+        
+        .floating-nav.show {
+            display: flex;
+            opacity: 1;
+        }
+        
+        .nav-step {
+            width: 40px;
+            height: 40px;
+            border: none;
+            background: var(--bg-input);
+            border-radius: 50%;
+            font-size: 18px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .nav-step:hover {
+            background: var(--success);
+            transform: scale(1.1);
+        }
+        
+        .nav-step.active {
+            background: var(--success);
+            box-shadow: 0 0 10px rgba(52, 199, 89, 0.3);
+        }
     </style>
 </head>
 <body data-theme="dark">
@@ -542,9 +833,9 @@
 
         <div class="workflow-container">
             <!-- Step 1: Setup -->
-            <div class="workflow-step">
+            <div class="workflow-step" id="step1">
                 <div class="step-header">
-                    <span class="step-number">1</span>
+                    <span class="step-number">⚙️</span>
                     <h2>Setup Your Session</h2>
                     <p>Configure your recording preferences</p>
                 </div>
@@ -555,7 +846,7 @@
                         <div class="control-group">
                             <label>Choose your preferred format</label>
                             <select id="notationStyle">
-                                <option value="carnatic">Carnatic (Sa Ri Ga Ma Pa Dha Ni)</option>
+                                <option value="carnatic" selected>Carnatic (Sa Ri Ga Ma Pa Dha Ni)</option>
                                 <option value="western">Western (C D E F G A B)</option>
                             </select>
                         </div>
@@ -566,6 +857,18 @@
                         <div class="control-group">
                             <label>Select shruti</label>
                             <select id="basePitch">
+                                <option value="65.41">C2 (65.41 Hz) - Very Low</option>
+                                <option value="69.30">C#2 (69.30 Hz) - Very Low</option>
+                                <option value="73.42">D2 (73.42 Hz) - Very Low</option>
+                                <option value="77.78">D#2 (77.78 Hz) - Very Low</option>
+                                <option value="82.41">E2 (82.41 Hz) - Very Low</option>
+                                <option value="87.31">F2 (87.31 Hz) - Very Low</option>
+                                <option value="92.50">F#2 (92.50 Hz) - Very Low</option>
+                                <option value="98.00">G2 (98.00 Hz) - Very Low</option>
+                                <option value="103.83">G#2 (103.83 Hz) - Very Low</option>
+                                <option value="110.00">A2 (110.00 Hz) - Very Low</option>
+                                <option value="116.54">A#2 (116.54 Hz) - Very Low</option>
+                                <option value="123.47">B2 (123.47 Hz) - Very Low</option>
                                 <option value="130.81">C3 (130.81 Hz) - Male Low</option>
                                 <option value="138.59">C#3 (138.59 Hz) - Male Low</option>
                                 <option value="146.83">D3 (146.83 Hz) - Male</option>
@@ -590,6 +893,18 @@
                                 <option value="440.00" selected>A4 (440.00 Hz) - Female High</option>
                                 <option value="466.16">A#4 (466.16 Hz) - Female High</option>
                                 <option value="493.88">B4 (493.88 Hz) - Female High</option>
+                                <option value="523.25">C5 (523.25 Hz) - Very High</option>
+                                <option value="554.37">C#5 (554.37 Hz) - Very High</option>
+                                <option value="587.33">D5 (587.33 Hz) - Very High</option>
+                                <option value="622.25">D#5 (622.25 Hz) - Very High</option>
+                                <option value="659.25">E5 (659.25 Hz) - Very High</option>
+                                <option value="698.46">F5 (698.46 Hz) - Very High</option>
+                                <option value="739.99">F#5 (739.99 Hz) - Very High</option>
+                                <option value="783.99">G5 (783.99 Hz) - Very High</option>
+                                <option value="830.61">G#5 (830.61 Hz) - Very High</option>
+                                <option value="880.00">A5 (880.00 Hz) - Very High</option>
+                                <option value="932.33">A#5 (932.33 Hz) - Very High</option>
+                                <option value="987.77">B5 (987.77 Hz) - Very High</option>
                             </select>
                         </div>
                         <div class="control-group">
@@ -607,18 +922,27 @@
                             <select id="language">
                                 <option value="english">English</option>
                                 <option value="kannada">ಕನ್ನಡ</option>
-                                <option value="telugu">తెలుగు</option>
+                                <option value="telugu" selected>తెలుగు</option>
                                 <option value="hindi">हिन्दी</option>
                                 <option value="sanskrit">संस्कृत</option>
                             </select>
                         </div>
                     </div>
+
+                    <div class="control-card secondary-control">
+                        <h3>⚙️ Note Filtering</h3>
+                        <div class="control-group">
+                            <label>Minimum note length (ms)</label>
+                            <input type="number" id="minNoteLength" value="50" min="10" max="500" step="10">
+                            <small>Notes shorter than this will be ignored or merged</small>
+                        </div>
+                    </div>
                 </div>
 
             <!-- Step 2: Prepare -->
-            <div class="workflow-step">
+            <div class="workflow-step" id="step2">
                 <div class="step-header">
-                    <span class="step-number">2</span>
+                    <span class="step-number">📝</span>
                     <h2>Add Your Lyrics</h2>
                     <p>Enter the text you'll be singing</p>
                 </div>
@@ -632,9 +956,9 @@
             </div>
 
             <!-- Step 3: Record -->
-            <div class="workflow-step">
+            <div class="workflow-step" id="step3">
                 <div class="step-header">
-                    <span class="step-number">3</span>
+                    <span class="step-number">🎤</span>
                     <h2>Record & Analyze</h2>
                     <p>Start recording to see real-time analysis</p>
                 </div>
@@ -656,6 +980,10 @@
                             <span class="btn-icon">▶️</span>
                             <span class="btn-text">Playback</span>
                         </button>
+                        <button id="stopPlayback" class="btn btn-secondary" disabled style="display: none;">
+                            <span class="btn-icon">⏹️</span>
+                            <span class="btn-text">Stop</span>
+                        </button>
                         <button id="exportAudio" class="btn btn-secondary" disabled>
                             <span class="btn-icon">💾</span>
                             <span class="btn-text">Export Audio</span>
@@ -667,9 +995,19 @@
 
         <div class="visualization">
             <h3>🎵 Real-time Pitch</h3>
-            <div id="pitchDisplay" class="pitch-display">-</div>
-            <div id="pitchDeviation" class="pitch-deviation">-</div>
-            <canvas id="canvas"></canvas>
+            <div class="pitch-dial-container">
+                <div class="pitch-dial">
+                    <div class="dial-notes"></div>
+                    <div class="dial-needle"></div>
+                    <div class="dial-center">
+                        <div id="dialNote" class="dial-note">-</div>
+                        <div id="dialFreq" class="dial-freq">- Hz</div>
+                    </div>
+                </div>
+            </div>
+            <div id=\"pitchDisplay\" class=\"pitch-display\">-</div>
+            <div id=\"pitchDeviation\" class=\"pitch-deviation\">-</div>
+            <div id=\"harmonicBars\" class=\"harmonic-bars\"></div>
         </div>
 
         <div class="notation-section">
@@ -681,6 +1019,10 @@
                         <span class="btn-icon">📄</span>
                         Export
                     </button>
+                    <button id="exportFrequency" class="btn btn-small">
+                        <span class="btn-icon">🎵</span>
+                        Hz Data
+                    </button>
                 </div>
             </h3>
             <div id="liveNotation"></div>
@@ -691,11 +1033,31 @@
         </div>
     </div>
 
+    <!-- Floating Navigation -->
+    <div id="floatingNav" class="floating-nav">
+        <button class="nav-step" data-step="step1" title="Setup">⚙️</button>
+        <button class="nav-step" data-step="step2" title="Lyrics">📝</button>
+        <button class="nav-step" data-step="step3" title="Record">🎤</button>
+    </div>
+
+    <!-- Floating Stop Button -->
+    <button id="floatingStop" class="floating-stop" title="Stop Audio">⏹️</button>
+
+    <!-- Playback Control Bar -->
+    <div id="playbackControls" class="playback-controls">
+        <div id="currentTime" class="playback-time">0:00</div>
+        <div class="playback-slider" id="playbackSlider">
+            <div class="playback-progress" id="playbackProgress"></div>
+            <div class="playback-thumb" id="playbackThumb"></div>
+        </div>
+        <div id="totalTime" class="playback-time">0:00</div>
+    </div>
+
     <!-- Help Modal -->
     <div id="helpModal" class="modal">
         <div class="modal-content">
             <span class="close">&times;</span>
-            <h2>🎵 Svara Lekhini Help</h2>
+            <h2>🎵 Svara Lekhini Help <span id="versionDisplay" style="font-size: 0.6em; color: var(--text-secondary); font-weight: normal;"></span></h2>
             
             <div class="help-section">
                 <h3>🚀 Getting Started</h3>
@@ -747,7 +1109,6 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/pitchy@4.0.5/dist/pitchy.min.js"></script>
     <script src="languages.js"></script>
     <script src="app.js"></script>
     <script>
