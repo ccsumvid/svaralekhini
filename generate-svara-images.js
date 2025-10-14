@@ -5,17 +5,17 @@ const path = require('path');
 // Telugu svaras
 const teluguSvaras = {
     'sa': 'స',
-    'ri1': 'రి',
-    'ri2': 'రి',
-    'ga1': 'గ', 
-    'ga2': 'గ',
-    'ma1': 'మ',
-    'ma2': 'మ',
+    'ri1': 'రి₁',
+    'ri2': 'రి₂',
+    'ga1': 'గ₁', 
+    'ga2': 'గ₂',
+    'ma1': 'మ₁',
+    'ma2': 'మ₂',
     'pa': 'ప',
-    'dha1': 'ధ',
-    'dha2': 'ధ', 
-    'ni1': 'ని',
-    'ni2': 'ని'
+    'dha1': 'ధ₁',
+    'dha2': 'ధ₂', 
+    'ni1': 'ని₁',
+    'ni2': 'ని₂'
 };
 
 // Generate SVG for a svara with optional octave indicator
