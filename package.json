@@ -6,6 +6,8 @@
   "scripts": {
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:regression": "jest --verbose",
     "version:bump": "node version-bump.js"
   },
   "devDependencies": {
@@ -17,6 +19,11 @@
     "testPathIgnorePatterns": [
       "/node_modules/",
       "\\._.*"
+    ],
+    "collectCoverageFrom": [
+      "languages.js",
+      "!node_modules/**",
+      "!test-template.js"
     ]
   }
 }

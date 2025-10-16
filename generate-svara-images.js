@@ -36,9 +36,9 @@ function generateSvaraSVG(svara, octave = 0, svaraKey = '') {
         let dotY = 6; // Default position
         
         if (svaraKey.startsWith('ni') || svaraKey.startsWith('ma') || svaraKey === 'sa') {
-            dotY = 0; // Highest position for ni, ma, sa (6px higher than default)
-        } else if (svaraKey.startsWith('ri') || svaraKey === 'pa') {
-            dotY = 3; // High position for ri, pa (3px higher than default)
+            dotY = -5; // Move 5px higher: 0 - 5 = -5
+        } else if (svaraKey.startsWith('ri') || svaraKey === 'pa' || svaraKey.startsWith('dha')) {
+            dotY = -2; // Move 5px higher: 3 - 5 = -2
         }
         
         svg += `<circle cx="20" cy="${dotY}" r="2" fill="var(--text-primary, #333)"/>`;

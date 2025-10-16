@@ -100,6 +100,8 @@ class LanguageSupport {
             var isTeluguConsonant = (charCode >= 0x0C15 && charCode <= 0x0C39);
             var isTeluguVowel = (charCode >= 0x0C05 && charCode <= 0x0C14);
             var isTeluguMatra = (charCode >= 0x0C3E && charCode <= 0x0C4C);
+            var isAnusvara = (charCode === 0x0C02); // ం
+            var isVisarga = (charCode === 0x0C03); // ః
             
             currentSyllable += char;
             
@@ -109,9 +111,12 @@ class LanguageSupport {
             var nextIsConsonant = nextChar && (nextCharCode >= 0x0C15 && nextCharCode <= 0x0C39);
             var nextIsMatra = nextChar && (nextCharCode >= 0x0C3E && nextCharCode <= 0x0C4C);
             
+            // Split after anusvara or visarga when followed by consonant
             if (i === word.length - 1 || 
                 (isTeluguVowel && nextIsConsonant) ||
                 (isTeluguMatra && nextIsConsonant) ||
+                (isAnusvara && nextIsConsonant) ||
+                (isVisarga && nextIsConsonant) ||
                 (isTeluguConsonant && nextIsConsonant && !nextIsMatra)) {
                 
                 if (currentSyllable.trim()) {

@@ -23,6 +23,20 @@ class SvaraScribe {
         this.lastNoteTime = 0;
         this.currentNote = null;
         
+        // Lyric editor properties
+        this.lyricLines = [];
+        this.currentLineIndex = 0;
+        this.isRecordingPaused = false;
+        this.lineNotations = []; // Array of arrays, one for each line
+        this.lineSyllables = []; // Array of arrays, syllables for each line
+        this.selectedNote = null; // Currently selected note for deletion
+        this.selectedSyllable = null; // Currently selected syllable
+        
+        // Editor command system for undo/redo
+        this.commandHistory = [];
+        this.commandIndex = -1;
+        this.maxHistorySize = 100;
+        
         // Pitch stabilization
         this.recentPitches = [];
         this.stablePitch = null;
@@ -61,6 +75,25 @@ class SvaraScribe {
         this.initializeEventListeners();
         this.loadSessionOptions();
     }
+    
+    // Editor Command Pattern Implementation
+    executeCommand(command) {
+        // Remove any commands after current index (for branching undo history)
+        this.commandHistory = this.commandHistory.slice(0, this.commandIndex + 1);
+        
+        // Execute the command
+        command.execute();
+        
+        // Add to history
+        this.commandHistory.push(command);
+        this.commandIndex++;
+        
+        // Limit history size
+        if (this.commandHistory.length > this.maxHistorySize) {
+            this.commandHistory.shift();
+            this.commandIndex--;
+        }
+    }
 
     saveSessionOptions() {
         try {
@@ -68,8 +101,8 @@ class SvaraScribe {
                 notationStyle: document.getElementById('notationStyle').value,
                 basePitch: document.getElementById('basePitch').value,
                 language: document.getElementById('language').value,
-                lyrics: document.getElementById('lyricsInput').value,
-                minNoteLength: document.getElementById('minNoteLength').value
+                minNoteLength: document.getElementById('minNoteLength').value,
+                lyricLines: this.lyricLines
             };
             localStorage.setItem('svaraLekhiniOptions', JSON.stringify(options));
         } catch (error) {
@@ -83,25 +116,28 @@ class SvaraScribe {
             if (saved) {
                 const options = JSON.parse(saved);
                 
-                if (options.notationStyle) {
-                    document.getElementById('notationStyle').value = options.notationStyle;
-                }
-                if (options.basePitch) {
-                    document.getElementById('basePitch').value = options.basePitch;
-                }
-                if (options.language) {
-                    document.getElementById('language').value = options.language;
-                }
-                if (options.lyrics) {
-                    document.getElementById('lyricsInput').value = options.lyrics;
-                    this.processLyrics(); // Process loaded lyrics
-                }
-                if (options.minNoteLength) {
-                    document.getElementById('minNoteLength').value = options.minNoteLength;
-                }
-                
-                // Update UI based on loaded options
-                this.handleNotationStyleChange();
+                // Wait for DOM to be ready
+                setTimeout(() => {
+                    if (options.notationStyle && document.getElementById('notationStyle')) {
+                        document.getElementById('notationStyle').value = options.notationStyle;
+                    }
+                    if (options.basePitch && document.getElementById('basePitch')) {
+                        document.getElementById('basePitch').value = options.basePitch;
+                    }
+                    if (options.language && document.getElementById('language')) {
+                        document.getElementById('language').value = options.language;
+                    }
+                    if (options.minNoteLength && document.getElementById('minNoteLength')) {
+                        document.getElementById('minNoteLength').value = options.minNoteLength;
+                    }
+                    if (options.lyricLines) {
+                        this.lyricLines = options.lyricLines;
+                        this.restoreLyricEditor();
+                    }
+                    
+                    // Update UI based on loaded options
+                    this.handleNotationStyleChange();
+                }, 100);
             }
         } catch (error) {
             console.error('Error loading session options:', error);
@@ -150,9 +186,15 @@ class SvaraScribe {
         } else {
             notes = [];
             for (let i = 0; i < 12; i++) {
-                const svara = this.languageSupport.getFormattedSvara(i, language, 0);
-                // Remove octave indicators for dial display
-                notes.push(svara.replace(/[₀₁₂₃₄₅₆₇₈₉̣̇₋⁺]/g, ''));
+                if (language === 'telugu') {
+                    // Use direct Telugu svara names with subscripts
+                    const teluguSvaras = ['స', 'రి₁', 'రి₂', 'గ₁', 'గ₂', 'మ₁', 'మ₂', 'ప', 'ధ₁', 'ధ₂', 'ని₁', 'ని₂'];
+                    notes.push(teluguSvaras[i]);
+                } else {
+                    const svara = this.languageSupport.getFormattedSvara(i, language, 0);
+                    // Remove all octave indicators for other languages
+                    notes.push(svara.replace(/[₀₁₂₃₄₅₆₇₈₉̣̇₋⁺]/g, ''));
+                }
             }
         }
         
@@ -331,7 +373,22 @@ class SvaraScribe {
     }
 
     initializeEventListeners() {
-        document.getElementById('startRecord').addEventListener('click', () => this.startRecording());
+        document.getElementById('startRecord').addEventListener('click', (e) => {
+            // Immediate UI feedback
+            const btn = e.target.closest('button');
+            btn.disabled = true;
+            btn.style.opacity = '0.7';
+            
+            // Use setTimeout to prevent blocking the UI thread
+            setTimeout(async () => {
+                await this.startRecording();
+                // Re-enable button if recording didn't start
+                if (!this.isRecording) {
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                }
+            }, 0);
+        });
         document.getElementById('stopRecord').addEventListener('click', () => this.stopRecording());
         document.getElementById('playback').addEventListener('click', () => this.togglePlayback());
         document.getElementById('livePlayback').addEventListener('click', () => this.togglePlayback());
@@ -343,10 +400,6 @@ class SvaraScribe {
         }
         document.getElementById('exportNotation').addEventListener('click', () => this.exportNotation());
         document.getElementById('exportFrequency').addEventListener('click', () => this.exportFrequency());
-        document.getElementById('lyricsInput').addEventListener('input', () => {
-            this.processLyrics();
-            this.saveSessionOptions();
-        });
         
         // Progressive disclosure for notation style
         document.getElementById('notationStyle').addEventListener('change', () => {
@@ -368,6 +421,70 @@ class SvaraScribe {
             this.filterNotesByLength();
         });
         
+        // Lyric editor event listeners
+        document.getElementById('lyricEditor').addEventListener('input', () => this.handleLyricInput());
+        document.getElementById('lyricEditor').addEventListener('keydown', (e) => {
+            console.log('Key pressed:', e.key, 'isRecording:', this.isRecording, 'isPaused:', this.isRecordingPaused, 'currentLine:', this.currentLineIndex, 'totalLines:', this.lyricLines.length);
+            
+            if (e.key === 'Enter') {
+                // Allow Enter navigation if we have multiple lines
+                if (this.lyricLines.length > 1) {
+                    e.preventDefault();
+                    console.log('Enter pressed - moving to next line');
+                    this.moveToNextLine();
+                    
+                    // Keep focus on the textarea
+                    setTimeout(() => {
+                        document.getElementById('lyricEditor').focus();
+                    }, 10);
+                } else {
+                    console.log('Enter pressed but only one line available');
+                }
+            }
+        });
+        const pauseResumeBtn = document.getElementById('pauseResume');
+        if (pauseResumeBtn) {
+            pauseResumeBtn.addEventListener('click', () => this.togglePauseResume());
+        }
+        
+        // Initialize lyric editor on load
+        this.handleLyricInput();
+        
+        // Add keyboard event listener for note deletion
+        document.addEventListener('keydown', (e) => {
+            if ((e.key === 'Backspace' || e.key === 'Delete') && this.selectedNote) {
+                e.preventDefault();
+                this.deleteSelectedNote();
+            }
+            // Arrow keys for moving selected spans
+            if (e.key === 'ArrowLeft' && (this.selectedNote || this.selectedSyllable)) {
+                e.preventDefault();
+                const lineIndex = this.selectedNote ? this.selectedNote.lineIndex : this.selectedSyllable.lineIndex;
+                this.moveLeft(lineIndex);
+            }
+            if (e.key === 'ArrowRight' && (this.selectedNote || this.selectedSyllable)) {
+                e.preventDefault();
+                const lineIndex = this.selectedNote ? this.selectedNote.lineIndex : this.selectedSyllable.lineIndex;
+                this.moveRight(lineIndex);
+            }
+            // Undo/Redo shortcuts
+            if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                this.undo();
+            }
+            if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) {
+                e.preventDefault();
+                this.redo();
+            }
+            if ((e.metaKey || e.ctrlKey) && e.key === 'y') {
+                e.preventDefault();
+                this.redo();
+            }
+        });
+        
+        // Add context menu for copying notation lines
+        this.createContextMenu();
+        
         // Help modal
         document.getElementById('helpBtn').addEventListener('click', () => this.showHelp());
         document.querySelector('.close').addEventListener('click', () => this.hideHelp());
@@ -377,6 +494,9 @@ class SvaraScribe {
         
         // Clear live notation
         document.getElementById('clearLive').addEventListener('click', () => this.clearLiveNotation());
+        
+        // Smart align all lines
+        document.getElementById('smartAlignAll').addEventListener('click', () => this.smartAlignAllLines());
         
         // Floating stop button
         document.getElementById('floatingStop').addEventListener('click', () => this.stopAllAudio());
@@ -538,7 +658,25 @@ class SvaraScribe {
     clearLiveNotation() {
         this.liveNotation = [];
         this.currentNote = null;
-        document.getElementById('liveNotation').innerHTML = '';
+        
+        // Clear lyric editor notation lines
+        this.lineNotations = [];
+        this.lineSyllables = [];
+        this.currentLineIndex = 0;
+        this.selectedNote = null;
+        this.selectedSyllable = null;
+        
+        // Clear notation lines display
+        const notationLines = document.getElementById('notationLines');
+        if (notationLines) {
+            notationLines.innerHTML = '';
+        }
+        
+        // Clear legacy liveNotation if it exists
+        const liveNotationDiv = document.getElementById('liveNotation');
+        if (liveNotationDiv) {
+            liveNotationDiv.innerHTML = '';
+        }
     }
 
     filterNotesByLength() {
@@ -556,6 +694,622 @@ class SvaraScribe {
         }
     }
 
+    handleLyricInput() {
+        const editor = document.getElementById('lyricEditor');
+        const lines = editor.value.split('\n').filter(line => line.trim().length > 0);
+        
+        console.log('handleLyricInput called, raw lines:', editor.value.split('\n'));
+        console.log('Filtered lines:', lines);
+        
+        // Update lyric lines and create notation lines
+        this.lyricLines = lines;
+        
+        // Clear existing notations and syllables when lyrics change
+        this.lineNotations = [];
+        this.lineSyllables = [];
+        
+        this.updateNotationLines();
+        this.saveSessionOptions();
+    }
+    
+    updateNotationLines() {
+        const container = document.getElementById('notationLines');
+        container.innerHTML = '';
+        
+        this.lyricLines.forEach((line, index) => {
+            const lineDiv = document.createElement('div');
+            lineDiv.className = 'notation-line';
+            lineDiv.id = `notation-line-${index}`;
+            
+            if (index === this.currentLineIndex && this.isRecording) {
+                lineDiv.classList.add('active');
+            }
+            
+            // Split line into syllables and store
+            const language = document.getElementById('language')?.value || 'english';
+            const syllables = this.languageSupport.splitIntoSyllables(line, language);
+            
+            // Initialize syllable array if not exists
+            if (!this.lineSyllables[index]) {
+                this.lineSyllables[index] = [...syllables];
+            }
+            
+            // Display syllables (including null values for alignment)
+            const syllableSpans = this.displayLineSyllables(index);
+            
+            lineDiv.innerHTML = `
+                <div class="line-header">
+                    <span>Line ${index + 1}</span>
+                    <div class="line-controls">
+                        <button class="align-btn" onclick="app.moveLeft(${index})" title="Move selected left">◀</button>
+                        <button class="align-btn" onclick="app.moveRight(${index})" title="Move selected right">▶</button>
+                        <button class="align-btn smart-align" onclick="app.smartAlignSpans(${index})" title="Smart align by duration">🧠</button>
+                    </div>
+                </div>
+                <div class="line-lyrics" id="line-lyrics-${index}">${syllableSpans}</div>
+                <div class="line-notation" id="line-notation-${index}">
+                    <!-- Notes will appear here -->
+                </div>
+            `;
+            
+            // Add click handler to switch to this line during recording
+            lineDiv.addEventListener('click', () => {
+                if (this.isRecording && !this.isRecordingPaused) {
+                    this.switchToLine(index);
+                }
+            });
+            
+            container.appendChild(lineDiv);
+            
+            // Add syllable click handlers
+            lineDiv.querySelectorAll('.syllable-span:not(.empty-space)').forEach(syllableElement => {
+                syllableElement.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.selectSyllable(e.target);
+                });
+            });
+        });
+        
+        // Initialize line notations array
+        while (this.lineNotations.length < this.lyricLines.length) {
+            this.lineNotations.push([]);
+        }
+    }
+    
+    togglePauseResume() {
+        if (!this.isRecording) return;
+        
+        this.isRecordingPaused = !this.isRecordingPaused;
+        const btn = document.getElementById('pauseResume');
+        const icon = btn.querySelector('.btn-icon');
+        const text = btn.querySelector('.btn-text');
+        
+        if (this.isRecordingPaused) {
+            icon.textContent = '▶️';
+            text.textContent = 'Resume';
+        } else {
+            icon.textContent = '⏸️';
+            text.textContent = 'Pause';
+        }
+    }
+    
+    moveToNextLine() {
+        console.log('moveToNextLine called:', this.currentLineIndex, 'of', this.lyricLines.length - 1);
+        console.log('Current lyric lines:', this.lyricLines);
+        
+        if (this.currentLineIndex < this.lyricLines.length - 1) {
+            // If recording, finalize current note for current line
+            if (this.isRecording && this.currentNote) {
+                const currentTime = Date.now();
+                this.currentNote.duration = currentTime - this.currentNote.startTime;
+                console.log('Finalizing current note with duration:', this.currentNote.duration);
+                if (this.currentNote.duration >= 150) {
+                    this.lineNotations[this.currentLineIndex].push({...this.currentNote});
+                    this.displayLineNotation(this.currentLineIndex);
+                }
+                // Reset current note for new line
+                this.currentNote = null;
+            }
+            
+            // Move to next line
+            this.currentLineIndex++;
+            console.log('Moved to line:', this.currentLineIndex, 'Line text:', this.lyricLines[this.currentLineIndex]);
+            this.updateActiveLineIndicator();
+        } else {
+            console.log('Already at last line, cannot move further');
+        }
+    }
+    
+    updateActiveLineIndicator() {
+        console.log('Updating active line indicator to:', this.currentLineIndex);
+        // Remove active class from all lines
+        document.querySelectorAll('.notation-line').forEach(line => {
+            line.classList.remove('active');
+        });
+        
+        // Add active class to current line
+        const currentLine = document.getElementById(`notation-line-${this.currentLineIndex}`);
+        if (currentLine) {
+            currentLine.classList.add('active');
+            console.log('Added active class to line:', this.currentLineIndex);
+        } else {
+            console.log('Could not find line element:', `notation-line-${this.currentLineIndex}`);
+        }
+    }
+    
+    displayLineSyllables(lineIndex) {
+        if (!this.lineSyllables[lineIndex]) return '';
+        
+        return this.lineSyllables[lineIndex].map((syllable, syllableIndex) => {
+            if (syllable === null) {
+                return `<span class="syllable-span empty-space" 
+                    data-line="${lineIndex}" 
+                    data-syllable="${syllableIndex}">
+                    &nbsp;
+                </span>`;
+            } else {
+                return `<span class="syllable-span" 
+                    data-line="${lineIndex}" 
+                    data-syllable="${syllableIndex}">
+                    ${syllable}
+                </span>`;
+            }
+        }).join(' ');
+    }
+    
+    moveLeft(lineIndex) {
+        if (this.selectedSyllable && this.selectedSyllable.lineIndex === lineIndex) {
+            this.moveSyllablesLeft(lineIndex);
+        } else if (this.selectedNote && this.selectedNote.lineIndex === lineIndex) {
+            this.moveNotesLeft(lineIndex);
+        }
+    }
+    
+    moveRight(lineIndex) {
+        if (this.selectedSyllable && this.selectedSyllable.lineIndex === lineIndex) {
+            this.moveSyllablesRight(lineIndex);
+        } else if (this.selectedNote && this.selectedNote.lineIndex === lineIndex) {
+            this.moveNotesRight(lineIndex);
+        }
+    }
+    
+    moveSyllablesLeft(lineIndex) {
+        if (!this.lineSyllables[lineIndex] || !this.selectedSyllable) return;
+        
+        const startIndex = this.selectedSyllable.syllableIndex;
+        
+        // Look for empty space (null) to the left of selected position
+        if (startIndex > 0 && this.lineSyllables[lineIndex][startIndex - 1] === null) {
+            // Remove the empty space to the left
+            this.lineSyllables[lineIndex].splice(startIndex - 1, 1);
+            this.updateLineSyllableDisplay(lineIndex);
+            
+            // Update selected syllable index since we removed an element before it
+            if (this.selectedSyllable) {
+                this.selectedSyllable.syllableIndex = startIndex - 1;
+            }
+        }
+    }
+    
+    moveSyllablesRight(lineIndex) {
+        if (!this.lineSyllables[lineIndex] || !this.selectedSyllable) return;
+        
+        const startIndex = this.selectedSyllable.syllableIndex;
+        this.lineSyllables[lineIndex].splice(startIndex, 0, null);
+        this.updateLineSyllableDisplay(lineIndex);
+    }
+    
+    updateLineSyllableDisplay(lineIndex) {
+        const container = document.getElementById(`line-lyrics-${lineIndex}`);
+        if (!container) return;
+        
+        container.innerHTML = this.displayLineSyllables(lineIndex);
+        
+        // Add click handlers
+        container.querySelectorAll('.syllable-span:not(.empty-space)').forEach(syllableElement => {
+            syllableElement.addEventListener('click', (e) => {
+                this.selectSyllable(e.target);
+            });
+        });
+        
+        // Restore selection if we have a selected syllable
+        if (this.selectedSyllable && this.selectedSyllable.lineIndex === lineIndex) {
+            const syllableElement = container.querySelector(`[data-syllable="${this.selectedSyllable.syllableIndex}"]`);
+            if (syllableElement && !syllableElement.classList.contains('empty-space')) {
+                syllableElement.classList.add('selected');
+                this.selectedSyllable.element = syllableElement;
+            }
+        }
+    }
+    
+    selectSyllable(syllableElement) {
+        // Remove selection from all elements
+        document.querySelectorAll('.syllable-span, .live-note').forEach(element => {
+            element.classList.remove('selected');
+        });
+        
+        // Add selection to clicked syllable
+        syllableElement.classList.add('selected');
+        
+        // Store selected syllable info
+        this.selectedSyllable = {
+            element: syllableElement,
+            lineIndex: parseInt(syllableElement.dataset.line),
+            syllableIndex: parseInt(syllableElement.dataset.syllable)
+        };
+        
+        // Clear note selection
+        this.selectedNote = null;
+    }
+    
+    moveNotesLeft(lineIndex) {
+        // Move selected note and succeeding notes one position to the left
+        if (!this.lineNotations[lineIndex] || this.lineNotations[lineIndex].length === 0) return;
+        
+        let startIndex = 0;
+        if (this.selectedNote && this.selectedNote.lineIndex === lineIndex) {
+            startIndex = this.selectedNote.noteIndex;
+        }
+        
+        // Look for empty space (null) to the left of selected position
+        if (startIndex > 0 && this.lineNotations[lineIndex][startIndex - 1] === null) {
+            // Remove the empty space to the left
+            this.lineNotations[lineIndex].splice(startIndex - 1, 1);
+            this.displayLineNotation(lineIndex);
+            
+            // Update selected note index since we removed an element before it
+            if (this.selectedNote) {
+                this.selectedNote.noteIndex = startIndex - 1;
+            }
+        }
+    }
+    
+    moveNotesRight(lineIndex) {
+        // Move selected note and succeeding notes one position to the right
+        if (!this.lineNotations[lineIndex] || this.lineNotations[lineIndex].length === 0) return;
+        
+        let startIndex = 0;
+        if (this.selectedNote && this.selectedNote.lineIndex === lineIndex) {
+            startIndex = this.selectedNote.noteIndex;
+        }
+        
+        // Insert empty space at the start position
+        this.lineNotations[lineIndex].splice(startIndex, 0, null);
+        this.displayLineNotation(lineIndex);
+    }
+    
+    displayLineNotation(lineIndex) {
+        const container = document.getElementById(`line-notation-${lineIndex}`);
+        if (!container || !this.lineNotations[lineIndex]) return;
+        
+        let html = '';
+        this.lineNotations[lineIndex].forEach((note, noteIndex) => {
+            if (note === null) {
+                // Empty space for alignment
+                html += `<span class="live-note empty-space" 
+                    data-line="${lineIndex}" 
+                    data-note="${noteIndex}">
+                    &nbsp;
+                </span>`;
+            } else {
+                const durationIndicator = this.getDurationIndicator(note.duration);
+                const pitchHz = note.pitch ? note.pitch.toFixed(2) : 'N/A';
+                
+                html += `<span class="live-note" 
+                    data-line="${lineIndex}" 
+                    data-note="${noteIndex}"
+                    data-tooltip="Pitch: ${pitchHz} Hz | Duration: ${note.duration}ms | Click to select, Backspace/Delete to remove">
+                    ${note.displayNote}${durationIndicator}
+                </span>`;
+            }
+        });
+        
+        container.innerHTML = html;
+        
+        // Add click handlers for note selection
+        container.querySelectorAll('.live-note:not(.empty-space)').forEach(noteElement => {
+            noteElement.addEventListener('click', (e) => {
+                this.selectNote(e.target);
+            });
+        });
+        
+        // Restore selection if we have a selected note
+        if (this.selectedNote && this.selectedNote.lineIndex === lineIndex) {
+            const noteElement = container.querySelector(`[data-note="${this.selectedNote.noteIndex}"]`);
+            if (noteElement && !noteElement.classList.contains('empty-space')) {
+                noteElement.classList.add('selected');
+                this.selectedNote.element = noteElement;
+            }
+        }
+        
+        this.addTooltipListeners(container);
+    }
+    
+    smartAlignSpans(lineIndex) {
+        if (!this.lyricLines[lineIndex] || !this.lineNotations[lineIndex]) return;
+        
+        const language = document.getElementById('language')?.value || 'english';
+        const syllables = this.languageSupport.splitIntoSyllables(this.lyricLines[lineIndex], language);
+        const notes = this.lineNotations[lineIndex].filter(note => note !== null);
+        
+        if (syllables.length === 0 || notes.length === 0) return;
+        
+        // Calculate total duration and syllable weights
+        const totalDuration = notes.reduce((sum, note) => sum + note.duration, 0);
+        const syllableWeights = this.calculateSyllableWeights(syllables, language);
+        const totalWeight = syllableWeights.reduce((sum, weight) => sum + weight, 0);
+        
+        // Calculate target duration for each syllable
+        const targetDurations = syllableWeights.map(weight => 
+            (weight / totalWeight) * totalDuration
+        );
+        
+        // Clear and rebuild arrays
+        this.lineNotations[lineIndex] = [];
+        this.lineSyllables[lineIndex] = [];
+        
+        let noteIndex = 0;
+        let currentNoteDuration = 0;
+        
+        // Assign notes to syllables based on duration
+        for (let syllableIndex = 0; syllableIndex < syllables.length; syllableIndex++) {
+            const targetDuration = targetDurations[syllableIndex];
+            const syllable = syllables[syllableIndex];
+            
+            // Add syllable
+            this.lineSyllables[lineIndex].push(syllable);
+            
+            // Assign notes for this syllable
+            let assignedDuration = 0;
+            let notesForSyllable = [];
+            
+            // If this is the last syllable, assign all remaining notes
+            if (syllableIndex === syllables.length - 1) {
+                while (noteIndex < notes.length) {
+                    notesForSyllable.push(notes[noteIndex]);
+                    noteIndex++;
+                }
+            } else {
+                // Assign notes until we reach target duration
+                while (noteIndex < notes.length && assignedDuration < targetDuration) {
+                    notesForSyllable.push(notes[noteIndex]);
+                    assignedDuration += notes[noteIndex].duration;
+                    noteIndex++;
+                }
+            }
+            
+            // Add notes to the line (one note per position)
+            if (notesForSyllable.length > 0) {
+                this.lineNotations[lineIndex].push(notesForSyllable[0]);
+                
+                // Add additional notes for this syllable
+                for (let i = 1; i < notesForSyllable.length; i++) {
+                    this.lineSyllables[lineIndex].push(null); // Empty syllable space
+                    this.lineNotations[lineIndex].push(notesForSyllable[i]);
+                }
+            } else {
+                // No notes for this syllable
+                this.lineNotations[lineIndex].push(null);
+            }
+        }
+        
+        // Update displays
+        this.displayLineNotation(lineIndex);
+        this.updateLineSyllableDisplay(lineIndex);
+    }
+    
+    calculateSyllableWeights(syllables, language) {
+        return syllables.map(syllable => {
+            // Base weight
+            let weight = 1.0;
+            
+            // Longer syllables get more weight
+            if (syllable.length > 3) weight *= 1.5;
+            else if (syllable.length > 2) weight *= 1.2;
+            
+            // Language-specific adjustments
+            if (language === 'telugu' || language === 'kannada' || language === 'hindi') {
+                // Consonant clusters and long vowels
+                if (syllable.match(/[ాీూేైోౌ]/)) weight *= 1.3; // Long vowels
+                if (syllable.match(/[క్ష|జ్ఞ|త్ర]/)) weight *= 1.2; // Consonant clusters
+            }
+            
+            return weight;
+        });
+    }
+    
+    autoAlignSpans(lineIndex) {
+        // Use smart alignment algorithm
+        this.smartAlignSpans(lineIndex);
+    }
+    
+    smartAlignAllLines() {
+        for (let i = 0; i < this.lyricLines.length; i++) {
+            this.smartAlignSpans(i);
+        }
+    }
+    
+    autoAlignWithSyllables(lineIndex) {
+        // Use the new auto-alignment method
+        this.autoAlignSpans(lineIndex);
+    }
+    
+    restoreLyricEditor() {
+        const editor = document.getElementById('lyricEditor');
+        if (editor && this.lyricLines.length > 0) {
+            editor.value = this.lyricLines.join('\n');
+            this.updateNotationLines();
+        }
+    }
+    
+    selectNote(noteElement) {
+        // Remove selection from all elements
+        document.querySelectorAll('.syllable-span, .live-note').forEach(element => {
+            element.classList.remove('selected');
+        });
+        
+        // Add selection to clicked note
+        noteElement.classList.add('selected');
+        
+        // Store selected note info
+        this.selectedNote = {
+            element: noteElement,
+            lineIndex: parseInt(noteElement.dataset.line),
+            noteIndex: parseInt(noteElement.dataset.note)
+        };
+        
+        // Clear syllable selection
+        this.selectedSyllable = null;
+    }
+    
+    deleteSelectedNote() {
+        if (!this.selectedNote) return;
+        
+        const { lineIndex, noteIndex } = this.selectedNote;
+        const note = this.lineNotations[lineIndex][noteIndex];
+        
+        // Skip if trying to delete empty space
+        if (note === null) return;
+        
+        // Create and execute delete command
+        const deleteCommand = new DeleteNoteCommand(this, lineIndex, noteIndex, note);
+        this.executeCommand(deleteCommand);
+        
+        // Select previous note if available
+        const prevNoteIndex = Math.max(0, noteIndex - 1);
+        if (this.lineNotations[lineIndex].length > 0 && prevNoteIndex < this.lineNotations[lineIndex].length) {
+            setTimeout(() => {
+                const prevNoteElement = document.querySelector(`[data-line="${lineIndex}"][data-note="${prevNoteIndex}"]`);
+                if (prevNoteElement) {
+                    this.selectNote(prevNoteElement);
+                }
+            }, 10);
+        } else {
+            this.selectedNote = null;
+        }
+    }
+    
+    switchToLine(lineIndex) {
+        console.log('Switching to line:', lineIndex, 'from:', this.currentLineIndex);
+        
+        // Finalize current note if switching lines during recording
+        if (this.currentNote && lineIndex !== this.currentLineIndex) {
+            const currentTime = Date.now();
+            this.currentNote.duration = currentTime - this.currentNote.startTime;
+            if (this.currentNote.duration >= 150) {
+                this.lineNotations[this.currentLineIndex].push({...this.currentNote});
+                this.displayLineNotation(this.currentLineIndex);
+            }
+            // Reset current note for new line
+            this.currentNote = null;
+        }
+        
+        // Switch to the clicked line
+        this.currentLineIndex = lineIndex;
+        this.updateActiveLineIndicator();
+    }
+    
+    undo() {
+        if (this.commandIndex >= 0) {
+            const command = this.commandHistory[this.commandIndex];
+            command.undo();
+            this.commandIndex--;
+        }
+    }
+    
+    redo() {
+        if (this.commandIndex < this.commandHistory.length - 1) {
+            this.commandIndex++;
+            const command = this.commandHistory[this.commandIndex];
+            command.execute();
+        }
+    }
+    
+    createContextMenu() {
+        // Create context menu element
+        const contextMenu = document.createElement('div');
+        contextMenu.id = 'notationContextMenu';
+        contextMenu.className = 'context-menu';
+        contextMenu.innerHTML = `
+            <div class="context-menu-item" data-action="copy">
+                <span>📋 Copy Notation Line</span>
+            </div>
+        `;
+        document.body.appendChild(contextMenu);
+        
+        // Add right-click listeners to notation lines
+        document.addEventListener('contextmenu', (e) => {
+            const notationLine = e.target.closest('.line-notation');
+            if (notationLine) {
+                e.preventDefault();
+                const lineIndex = parseInt(notationLine.id.split('-')[2]);
+                this.showContextMenu(e, lineIndex);
+            } else {
+                this.hideContextMenu();
+            }
+        });
+        
+        // Hide context menu on click elsewhere
+        document.addEventListener('click', () => this.hideContextMenu());
+        
+        // Handle context menu actions
+        contextMenu.addEventListener('click', (e) => {
+            const action = e.target.closest('.context-menu-item')?.dataset.action;
+            if (action === 'copy' && this.contextMenuLineIndex !== undefined) {
+                this.copyNotationLine(this.contextMenuLineIndex);
+            }
+            this.hideContextMenu();
+        });
+    }
+    
+    showContextMenu(event, lineIndex) {
+        const contextMenu = document.getElementById('notationContextMenu');
+        this.contextMenuLineIndex = lineIndex;
+        
+        contextMenu.style.display = 'block';
+        contextMenu.style.left = event.pageX + 'px';
+        contextMenu.style.top = event.pageY + 'px';
+    }
+    
+    hideContextMenu() {
+        const contextMenu = document.getElementById('notationContextMenu');
+        if (contextMenu) {
+            contextMenu.style.display = 'none';
+        }
+        this.contextMenuLineIndex = undefined;
+    }
+    
+    copyNotationLine(lineIndex) {
+        if (!this.lineNotations[lineIndex]) return;
+        
+        const notes = this.lineNotations[lineIndex];
+        const notationStyle = document.getElementById('notationStyle').value;
+        const language = document.getElementById('language').value;
+        
+        // Get text representation of notes
+        const notationText = notes.map(note => {
+            if (note === null) {
+                return '-'; // Empty space placeholder
+            }
+            if (notationStyle === 'western') {
+                return this.westernNotes[note.svaraIndex % 12];
+            } else if (language === 'telugu') {
+                // For Telugu, get the text from the svara names array
+                const teluguSvaras = ['స', 'రి₁', 'రి₂', 'గ₁', 'గ₂', 'మ₁', 'మ₂', 'ప', 'ధ₁', 'ధ₂', 'ని₁', 'ని₂'];
+                return teluguSvaras[note.svaraIndex % 12];
+            } else {
+                return this.languageSupport.getFormattedSvara(note.svaraIndex, language, note.octave);
+            }
+        }).join(' ');
+        
+        // Copy to clipboard
+        navigator.clipboard.writeText(notationText).then(() => {
+            console.log('Notation line copied:', notationText);
+        }).catch(err => {
+            console.error('Failed to copy:', err);
+        });
+    }
+
     showHelp() {
         document.getElementById('versionDisplay').textContent = 'v0.3.WORLD';
         document.getElementById('helpModal').style.display = 'block';
@@ -565,61 +1319,27 @@ class SvaraScribe {
         document.getElementById('helpModal').style.display = 'none';
     }
 
-    // Test function - call this from browser console: app.testPitchDetection()
-    testPitchDetection() {
-        console.log('Testing pitch detection with current base pitch:');
-        const basePitch = parseFloat(document.getElementById('basePitch').value);
-        console.log(`Base pitch: ${basePitch}Hz`);
-        
-        const expectedResults = [
-            { freq: basePitch * 1.0, expected: 'Sa', octave: 0 },
-            { freq: basePitch * 16/15, expected: 'Ri1', octave: 0 },
-            { freq: basePitch * 9/8, expected: 'Ri2', octave: 0 },
-            { freq: basePitch * 6/5, expected: 'Ga1', octave: 0 },
-            { freq: basePitch * 5/4, expected: 'Ga2', octave: 0 },
-            { freq: basePitch * 4/3, expected: 'Ma1', octave: 0 },
-            { freq: basePitch * 45/32, expected: 'Ma2', octave: 0 },
-            { freq: basePitch * 3/2, expected: 'Pa', octave: 0 },
-            { freq: basePitch * 8/5, expected: 'Dha1', octave: 0 },
-            { freq: basePitch * 5/3, expected: 'Dha2', octave: 0 },
-            { freq: basePitch * 16/9, expected: 'Ni1', octave: 0 },
-            { freq: basePitch * 15/8, expected: 'Ni2', octave: 0 },
-            { freq: basePitch * 2.0, expected: 'Sa', octave: 1 },
-            { freq: basePitch * 0.5, expected: 'Sa', octave: -1 },
-        ];
-        
-        let errors = 0;
-        expectedResults.forEach(test => {
-            const result = this.frequencyToSvara(test.freq);
-            const correct = result.svara === test.expected && result.octave === test.octave;
-            
-            if (!correct) {
-                console.error(`❌ ${test.freq.toFixed(1)}Hz: Expected ${test.expected} (octave ${test.octave}), got ${result.svara} (octave ${result.octave})`);
-                errors++;
-            } else {
-                console.log(`✅ ${test.freq.toFixed(1)}Hz -> ${result.svara} (octave ${result.octave})`);
-            }
-        });
-        
-        console.log(`\n=== TEST SUMMARY ===`);
-        console.log(`Total tests: ${expectedResults.length}`);
-        console.log(`Passed: ${expectedResults.length - errors}`);
-        console.log(`Failed: ${errors}`);
-        
-        if (errors > 0) {
-            console.log('\n🐛 BUGS FOUND - Check the failed tests above');
-        } else {
-            console.log('\n✅ All tests passed!');
+    async startRecording() {
+        if (this.isRecording) {
+            console.log('Recording already in progress');
+            return;
         }
         
-        return errors === 0;
-    }
-
-    async startRecording() {
         if (!this.audioContext) {
             const initialized = await this.initializeAudio();
             if (!initialized) return;
         }
+
+        // Check if lyrics are entered
+        const editor = document.getElementById('lyricEditor');
+        if (!editor.value.trim()) {
+            alert('Please enter lyrics before recording.');
+            return;
+        }
+        
+        // Force update lyric lines before recording
+        this.handleLyricInput();
+        console.log('Starting recording with lyric lines:', this.lyricLines);
 
         // Warn user if they already have a recording
         if (this.recordedChunks.length > 0) {
@@ -635,21 +1355,29 @@ class SvaraScribe {
         this.detectedSyllables = [];
         this.currentSyllableNotes = [];
         this.lastNoteTime = Date.now();
-        this.recordingStartTime = Date.now(); // Initialize recording start time
+        this.recordingStartTime = Date.now();
         this.currentNote = null;
+        
+        // Initialize lyric editor recording state
+        this.currentLineIndex = 0;
+        this.isRecordingPaused = false;
+        this.lineNotations = this.lyricLines.map(() => []);
         
         // Reset pitch stabilization
         this.recentPitches = [];
         this.stablePitch = null;
         
-        // Clear live notation display
-        document.getElementById('liveNotation').innerHTML = '';
+        // Update UI
+        this.updateActiveLineIndicator();
         
         this.mediaRecorder.start();
         this.isRecording = true;
+        console.log('Recording started, isRecording:', this.isRecording);
         
         document.getElementById('startRecord').disabled = true;
         document.getElementById('stopRecord').disabled = false;
+        const pauseBtn = document.getElementById('pauseResume');
+        if (pauseBtn) pauseBtn.disabled = false;
         
         this.startPitchDetection();
     }
@@ -1045,9 +1773,12 @@ class SvaraScribe {
     }
     
     updateLiveNotationWithSyllables(svaraData, currentTime, isNewSyllable) {
+        // Skip if recording is paused
+        if (this.isRecordingPaused) return;
+        
         const notationStyle = document.getElementById('notationStyle').value;
         const language = document.getElementById('language').value;
-        const minNoteDuration = parseInt(document.getElementById('minNoteLength').value) || 50;
+        const minNoteDuration = parseInt(document.getElementById('minNoteLength').value) || 150;
         
         // Get display note
         let displayNote;
@@ -1071,7 +1802,7 @@ class SvaraScribe {
             octave: svaraData.octave,
             displayNote: displayNote,
             startTime: currentTime,
-            timestamp: currentTime, // Add actual timestamp for playback sync
+            timestamp: currentTime,
             duration: 0,
             pitch: svaraData.pitch,
             waveform: waveformData
@@ -1115,30 +1846,22 @@ class SvaraScribe {
                 const noteDuration = Math.max(0, Math.min(calculatedDuration, 10000));
                 
                 if (noteDuration >= minNoteDuration) {
-                    // Note is long enough, add it normally
-                    this.liveNotation.push({...this.currentNote});
-                    this.currentSyllableNotes.push({...this.currentNote});
+                    // Note is long enough, add it to current line
+                    this.currentNote.duration = noteDuration;
+                    this.lineNotations[this.currentLineIndex].push({...this.currentNote});
+                    
+                    // Auto-align with syllables
+                    this.autoAlignWithSyllables(this.currentLineIndex);
+                    
+                    this.displayLineNotation(this.currentLineIndex);
                 } else {
-                    // Note is too short, handle it
-                    if (this.liveNotation.length > 0) {
-                        // Merge with previous note by extending its duration
-                        const lastNote = this.liveNotation[this.liveNotation.length - 1];
-                        lastNote.duration += noteDuration;
-                    } else {
-                        // No previous note, create a small empty block
-                        const emptyBlock = {
-                            svara: '',
-                            svaraIndex: -1,
-                            octave: 0,
-                            displayNote: '∼',
-                            startTime: this.currentNote.startTime,
-                            duration: noteDuration,
-                            pitch: this.currentNote.pitch,
-                            waveform: null,
-                            isEmpty: true
-                        };
-                        this.liveNotation.push(emptyBlock);
-                        this.currentSyllableNotes.push(emptyBlock);
+                    // Note is too short, merge with previous note if exists
+                    if (this.lineNotations[this.currentLineIndex].length > 0) {
+                        const lastNote = this.lineNotations[this.currentLineIndex][this.lineNotations[this.currentLineIndex].length - 1];
+                        if (lastNote !== null) {
+                            lastNote.duration += noteDuration;
+                            this.displayLineNotation(this.currentLineIndex);
+                        }
                     }
                 }
             }
@@ -1236,7 +1959,6 @@ class SvaraScribe {
         let correctedFrequency = frequency;
         if (frequency < basePitch * 0.5) { // More conservative threshold
             correctedFrequency = frequency * 2;
-            console.log(`Harmonic correction: ${frequency}Hz → ${correctedFrequency}Hz`);
         }
         
         let ratio = correctedFrequency / basePitch;
@@ -2005,22 +2727,9 @@ class SvaraScribe {
     }
 
     processLyrics() {
-        const lyrics = document.getElementById('lyricsInput').value;
-        const language = document.getElementById('language').value;
-        
-        // Split into syllables using language-aware method
-        this.syllables = this.languageSupport.splitIntoSyllables(lyrics, language);
-        
-        // Auto IAST transliteration for Indic languages
-        if (language !== 'english') {
-            this.syllablesIAST = this.syllables.map(syllable => 
-                this.languageSupport.transliterateToIAST(syllable, language)
-            );
-        } else {
-            this.syllablesIAST = this.syllables;
-        }
-        
-        this.displaySyllablesPreview();
+        // This method is no longer used since we have the lyric editor
+        // Keeping for backward compatibility but it does nothing
+        return;
     }
 
     displaySyllablesPreview() {
@@ -2361,96 +3070,29 @@ class SvaraScribe {
     }
 
     displayLiveNotation() {
+        // For backward compatibility, update the current line notation
+        if (this.lyricLines.length > 0 && this.currentLineIndex < this.lyricLines.length) {
+            this.displayLineNotation(this.currentLineIndex);
+        }
+        
+        // Legacy support - if old liveNotation div exists, update it too
         const liveNotationDiv = document.getElementById('liveNotation');
-        const notationStyle = document.getElementById('notationStyle').value;
-        const language = document.getElementById('language').value;
-        
-        var html = '';
-        
-        // Show finalized notes with duration representation
-        let i = 0;
-        while (i < this.liveNotation.length) {
-            const note = this.liveNotation[i];
-            
-            // Check if this note is under 100ms and can be grouped
-            if (note.duration < 100) {
-                let groupedNotes = [note];
-                let totalDuration = note.duration;
-                let j = i + 1;
-                
-                // Collect consecutive notes under 100ms
-                while (j < this.liveNotation.length && this.liveNotation[j].duration < 100) {
-                    groupedNotes.push(this.liveNotation[j]);
-                    totalDuration += this.liveNotation[j].duration;
-                    j++;
-                }
-                
-                // Create grouped span
-                const durationClass = this.getDurationClass(totalDuration);
-                const minWidth = 120; // Increased minimum width for grouped notes
-                const maxWidth = 300; // Increased maximum width
-                const baseDuration = 500;
-                const width = Math.min(maxWidth, Math.max(minWidth, (totalDuration / baseDuration) * 120 + minWidth));
-                
-                const groupedText = groupedNotes.map(n => n.displayNote).join(' ');
-                const avgPitch = groupedNotes.reduce((sum, n) => sum + (n.pitch || 0), 0) / groupedNotes.length;
-                
-                html += `<span class="live-note ${durationClass}" 
-                    style="width: ${width}px; text-align: center; font-size: 0.7em; white-space: nowrap; overflow: hidden;"
-                    data-tooltip="Grouped ${groupedNotes.length} notes | Avg Pitch: ${avgPitch.toFixed(2)} Hz | Total Duration: ${totalDuration}ms">
-                    ${groupedText}
-                </span>`;
-                
-                i = j; // Skip processed notes
-            } else {
-                // Single note (duration >= 100ms)
-                const durationClass = this.getDurationClass(note.duration);
+        if (liveNotationDiv && this.liveNotation.length > 0) {
+            let html = '';
+            this.liveNotation.forEach(note => {
                 const durationIndicator = this.getDurationIndicator(note.duration);
                 const pitchHz = note.pitch ? note.pitch.toFixed(2) : 'N/A';
                 
-                const minWidth = 60;
-                const maxWidth = 200;
-                const baseDuration = 500;
-                const width = Math.min(maxWidth, Math.max(minWidth, (note.duration / baseDuration) * 80 + minWidth));
-                
-                html += `<span class="live-note ${durationClass}" 
-                    style="width: ${width}px; text-align: center;"
+                html += `<span class="live-note" 
                     data-tooltip="Pitch: ${pitchHz} Hz | Duration: ${note.duration}ms">
                     ${note.displayNote}${durationIndicator}
                 </span>`;
-                
-                i++;
-            }
-        }
-        
-        // Show current note being sung with real-time duration
-        if (this.currentNote) {
-            const currentDuration = Date.now() - this.currentNote.startTime;
-            const durationClass = this.getDurationClass(currentDuration);
-            const durationIndicator = this.getDurationIndicator(currentDuration);
-            const pitchHz = this.currentNote.pitch ? this.currentNote.pitch.toFixed(2) : 'N/A';
-            const waveformSVG = this.generateWaveformSVG(this.currentNote.waveform);
+            });
             
-            // Calculate width based on current duration
-            const minWidth = 60;
-            const maxWidth = 200;
-            const baseDuration = 500;
-            const width = Math.min(maxWidth, Math.max(minWidth, (currentDuration / baseDuration) * 80 + minWidth));
-            
-            html += `<span class="live-note current ${durationClass}" 
-                style="width: ${width}px; text-align: center;"
-                data-tooltip="Pitch: ${pitchHz} Hz | Duration: ${currentDuration}ms">
-                ${this.currentNote.displayNote}${durationIndicator}
-            </span>`;
+            liveNotationDiv.innerHTML = html;
+            liveNotationDiv.scrollTop = liveNotationDiv.scrollHeight;
+            this.addTooltipListeners(liveNotationDiv);
         }
-        
-        liveNotationDiv.innerHTML = html;
-        
-        // Auto-scroll to bottom to show latest notation
-        liveNotationDiv.scrollTop = liveNotationDiv.scrollHeight;
-        
-        // Add tooltip functionality
-        this.addTooltipListeners(liveNotationDiv);
     }
     
     addTooltipListeners(container) {
@@ -2566,9 +3208,18 @@ class SvaraScribe {
         
         const blob = new Blob(this.recordedChunks, { type: 'audio/webm' });
         const url = URL.createObjectURL(blob);
+        // Generate filename from first word of lyrics if available
+        let filename = 'svara_lekhini_recording';
+        if (this.lyricLines.length > 0 && this.lyricLines[0].trim()) {
+            const firstWord = this.lyricLines[0].trim().split(/\s+/)[0];
+            if (firstWord) {
+                filename = firstWord.replace(/[^a-zA-Z0-9]/g, '_');
+            }
+        }
+        
         const a = document.createElement('a');
         a.href = url;
-        a.download = `svarascribe_recording_${Date.now()}.webm`;
+        a.download = `${filename}_${Date.now()}.webm`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -2584,11 +3235,43 @@ class SvaraScribe {
         notation += `Language: ${language}\n`;
         notation += `Base Pitch: ${document.getElementById('basePitch').value} Hz\n\n`;
         
-        // Export live notation if available
-        if (this.liveNotation.length > 0) {
+        // Export lyric editor notation if available
+        if (this.lyricLines.length > 0 && this.lineNotations.length > 0) {
+            notation += `Lyric-based Notation:\n\n`;
+            
+            this.lyricLines.forEach((lyricLine, lineIndex) => {
+                if (this.lineNotations[lineIndex] && this.lineNotations[lineIndex].length > 0) {
+                    // Use aligned syllables and notes
+                    const syllables = this.lineSyllables[lineIndex] || this.languageSupport.splitIntoSyllables(lyricLine, language);
+                    const notes = this.lineNotations[lineIndex];
+                    
+                    // Create aligned text with pipe separators
+                    const syllableText = syllables.map(syllable => syllable === null ? '-' : syllable).join(' | ');
+                    const notationText = notes.map(note => {
+                        if (note === null) {
+                            return '-'; // Empty space placeholder
+                        }
+                        if (notationStyle === 'western') {
+                            return this.westernNotes[note.svaraIndex % 12];
+                        } else if (language === 'telugu') {
+                            const teluguSvaras = ['స', 'రి₁', 'రి₂', 'గ₁', 'గ₂', 'మ₁', 'మ₂', 'ప', 'ధ₁', 'ధ₂', 'ని₁', 'ని₂'];
+                            return teluguSvaras[note.svaraIndex % 12];
+                        } else {
+                            return this.languageSupport.getFormattedSvara(note.svaraIndex, language, note.octave);
+                        }
+                    }).join(' | ');
+                    
+                    notation += `**Line ${lineIndex + 1}:**\n`;
+                    notation += `Lyrics: ${syllableText}\n`;
+                    notation += `Notes:  ${notationText}\n\n`;
+                }
+            });
+        }
+        
+        // Export legacy live notation if available (fallback)
+        else if (this.liveNotation.length > 0) {
             notation += `Live Notation:\n`;
             this.liveNotation.forEach((note, index) => {
-                // Use text notation for export, not HTML
                 var displayNote;
                 if (notationStyle === 'western') {
                     displayNote = this.westernNotes[note.svaraIndex % 12];
@@ -2657,9 +3340,18 @@ class SvaraScribe {
         
         const blob = new Blob([notation], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
+        // Generate filename from first word of lyrics if available
+        let filename = 'svara_lekhini_notation';
+        if (this.lyricLines.length > 0 && this.lyricLines[0].trim()) {
+            const firstWord = this.lyricLines[0].trim().split(/\s+/)[0];
+            if (firstWord) {
+                filename = firstWord.replace(/[^a-zA-Z0-9]/g, '_');
+            }
+        }
+        
         const a = document.createElement('a');
         a.href = url;
-        a.download = `svara_lekhini_notation_${Date.now()}.txt`;
+        a.download = `${filename}_${Date.now()}.txt`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -2699,13 +3391,42 @@ class SvaraScribe {
         
         const blob = new Blob([frequencyData], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
+        // Generate filename from first word of lyrics if available
+        let filename = 'svara_lekhini_frequencies';
+        if (this.lyricLines.length > 0 && this.lyricLines[0].trim()) {
+            const firstWord = this.lyricLines[0].trim().split(/\s+/)[0];
+            if (firstWord) {
+                filename = firstWord.replace(/[^a-zA-Z0-9]/g, '_') + '_frequencies';
+            }
+        }
+        
         const a = document.createElement('a');
         a.href = url;
-        a.download = `svara_lekhini_frequencies_${Date.now()}.txt`;
+        a.download = `${filename}_${Date.now()}.txt`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+    }
+}
+
+// Command Classes for Undo/Redo
+class DeleteNoteCommand {
+    constructor(app, lineIndex, noteIndex, note) {
+        this.app = app;
+        this.lineIndex = lineIndex;
+        this.noteIndex = noteIndex;
+        this.note = {...note}; // Deep copy
+    }
+    
+    execute() {
+        this.app.lineNotations[this.lineIndex].splice(this.noteIndex, 1);
+        this.app.displayLineNotation(this.lineIndex);
+    }
+    
+    undo() {
+        this.app.lineNotations[this.lineIndex].splice(this.noteIndex, 0, this.note);
+        this.app.displayLineNotation(this.lineIndex);
     }
 }
 

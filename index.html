@@ -15,6 +15,7 @@
             <h1>Svara Lekhini</h1>
             <p>Carnatic Music Analysis & Notation</p>
             <div class="theme-controls">
+                <button id="settingsBtn" class="settings-btn" title="Settings">⚙️</button>
                 <button id="themeToggle" class="theme-toggle" title="Toggle theme"></button>
                 <button id="helpBtn" class="help-btn">?</button>
             </div>
@@ -69,9 +70,13 @@
 
             <div class="notation-card">
                 <h3>
-                    🎼 Live Notation
+                    🎼 Lyric Editor & Notation
                     <div class="notation-actions">
                         <button id="clearLive" class="clear-btn">Clear</button>
+                        <button id="smartAlignAll" class="btn btn-small">
+                            <span class="btn-icon">🧠</span>
+                            Smart Align
+                        </button>
                         <button id="exportNotation" class="btn btn-small">
                             <span class="btn-icon">📄</span>
                             Export
@@ -82,20 +87,33 @@
                         </button>
                     </div>
                 </h3>
-                <div class="live-notation-controls" style="margin-bottom: 10px;">
-                    <button id="livePlayback" class="btn btn-small" disabled>
-                        <span class="btn-icon">▶️</span>
-                        <span class="btn-text">Play</span>
-                    </button>
+                
+                <div class="lyric-editor-container">
+                    <div class="lyric-input-section">
+                        <textarea id="lyricEditor" class="lyric-editor" placeholder="Type or paste your lyrics here. Each line will be recorded separately. Press Enter to move to next line during recording."></textarea>
+                        <div class="recording-controls">
+                            <button id="pauseResume" class="btn btn-secondary" disabled>
+                                <span class="btn-icon">⏸️</span>
+                                <span class="btn-text">Pause</span>
+                            </button>
+                            <button id="livePlayback" class="btn btn-small" disabled>
+                                <span class="btn-icon">▶️</span>
+                                <span class="btn-text">Play</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="notation-lines" id="notationLines">
+                        <!-- Dynamic notation lines will be inserted here -->
+                    </div>
                 </div>
-                <div id="liveNotation"></div>
             </div>
         </div>
 
             <div class="workflow-step" id="step1">
                 <div class="step-header">
                     <span class="step-number">⚙️</span>
-                    <h2>Setup Your Session</h2>
+                    <h2>Settings</h2>
                     <p>Configure your recording preferences</p>
                 </div>
                 
@@ -192,57 +210,20 @@
                         <h3>⚙️ Note Filtering</h3>
                         <div class="control-group">
                             <label>Minimum note length (ms)</label>
-                            <input type="number" id="minNoteLength" value="50" min="10" max="500" step="10">
+                            <input type="number" id="minNoteLength" value="150" min="10" max="500" step="10">
                             <small>Notes shorter than this will be ignored or merged</small>
                         </div>
                     </div>
                 </div>
 
 
-            <div class="workflow-step" id="step2">
-                <div class="step-header">
-                    <span class="step-number">📝</span>
-                    <h2>Add Your Lyrics</h2>
-                    <p>Enter the text you'll be singing</p>
-                </div>
-                
-                <div class="lyrics-card">
-                    <div class="lyrics-header">
-                        <h3>📝 Lyrics</h3>
-                    </div>
-                    <textarea id="lyricsInput" class="lyrics-input" placeholder="Enter your lyrics here..."></textarea>
-                </div>
-            </div>
-
-
-            <div class="workflow-step" id="step3">
-                <div class="step-header">
-                    <span class="step-number">🎤</span>
-                    <h2>Record & Analyze</h2>
-                    <p>Start recording to see real-time analysis</p>
-                </div>
-            </div>
         </div>
 
-        <div class="notation-section">
-            <h3>
-                🎼 Live Notation
-                <div class="notation-actions">
-                </div>
-            </h3>
-            <div id="liveNotation"></div>
-        </div>
-
-        <div class="notation-section" id="syllableDisplay">
-            <h3>🎯 Synchronized Notation</h3>
-        </div>
     </div>
 
     <!-- Floating Navigation -->
     <div id="floatingNav" class="floating-nav">
         <button class="nav-step" data-step="step1" title="Setup">⚙️</button>
-        <button class="nav-step" data-step="step2" title="Lyrics">📝</button>
-        <button class="nav-step" data-step="step3" title="Record">🎤</button>
     </div>
 
     <!-- Floating Stop Button -->
@@ -317,6 +298,11 @@
     <script src="languages.js"></script>
     <script src="app.js"></script>
     <script>
+        // Settings button functionality
+        document.getElementById('settingsBtn').addEventListener('click', function() {
+            document.getElementById('setup').scrollIntoView({ behavior: 'smooth' });
+        });
+        
         // Theme toggle functionality
         document.getElementById('themeToggle').addEventListener('click', function() {
             const body = document.body;
